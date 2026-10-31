@@ -69,8 +69,7 @@ function isIpInCidr(ip, cidr) {
   return (targetInt & info.mask) >>> 0 === info.networkInt;
 }
 
-// Draggable Modal with Lightened High-Contrast Theming
-function DraggableModal({ title, onClose, widthClass = 'w-[540px]', children }) {
+function DraggableModal({ title, onClose, widthClass = 'w-[580px]', children }) {
   const modalRef = useRef(null);
   const [pos, setPos] = useState({ x: 0, y: 0 });
   const [isDragging, setIsDragging] = useState(false);
@@ -79,8 +78,8 @@ function DraggableModal({ title, onClose, widthClass = 'w-[540px]', children }) 
   useEffect(() => {
     if (modalRef.current) {
       const rect = modalRef.current.getBoundingClientRect();
-      const initialLeft = Math.max(20, Math.round((window.innerWidth - rect.width) / 2));
-      const initialTop = Math.max(30, Math.round((window.innerHeight - rect.height) / 3));
+      const initialLeft = Math.max(30, Math.round((window.innerWidth - rect.width) / 2));
+      const initialTop = Math.max(40, Math.round((window.innerHeight - rect.height) / 3));
       setPos({ x: initialLeft, y: initialTop });
     }
   }, []);
@@ -102,8 +101,8 @@ function DraggableModal({ title, onClose, widthClass = 'w-[540px]', children }) 
       const dx = e.clientX - dragStart.current.mouseX;
       const dy = e.clientY - dragStart.current.mouseY;
       
-      const nextX = Math.max(10, Math.min(window.innerWidth - 100, dragStart.current.posX + dx));
-      const nextY = Math.max(10, Math.min(window.innerHeight - 80, dragStart.current.posY + dy));
+      const nextX = Math.max(10, Math.min(window.innerWidth - 120, dragStart.current.posX + dx));
+      const nextY = Math.max(10, Math.min(window.innerHeight - 90, dragStart.current.posY + dy));
       
       setPos({ x: nextX, y: nextY });
     };
@@ -126,7 +125,7 @@ function DraggableModal({ title, onClose, widthClass = 'w-[540px]', children }) 
     <div className="fixed inset-0 z-50 pointer-events-none">
       <div 
         onClick={onClose}
-        className="absolute inset-0 bg-black/75 pointer-events-auto backdrop-blur-[1px]" 
+        className="absolute inset-0 bg-black/80 pointer-events-auto backdrop-blur-[2px]" 
       />
 
       <div
@@ -136,31 +135,30 @@ function DraggableModal({ title, onClose, widthClass = 'w-[540px]', children }) 
           top: `${pos.y}px`,
           position: 'fixed'
         }}
-        className={`pointer-events-auto ${widthClass} bg-[#2d2d3a] border-2 border-[#717188] p-6 space-y-6 shadow-2xl select-text transition-shadow ${
-          isDragging ? 'shadow-amber-500/40 ring-2 ring-amber-400 cursor-grabbing' : 'shadow-black/90'
+        className={`pointer-events-auto ${widthClass} bg-[#242432] border-4 border-[#686884] p-8 space-y-7 shadow-2xl select-text transition-shadow ${
+          isDragging ? 'shadow-amber-500/50 ring-4 ring-amber-400 cursor-grabbing' : 'shadow-black/95'
         }`}
       >
-        {/* Title Bar Handle */}
         <div
           onMouseDown={handleMouseDown}
-          className="flex items-center justify-between border-b-2 border-[#525268] pb-3 cursor-grab active:cursor-grabbing select-none bg-[#373748] -mx-6 -mt-6 p-4 border-t-4 border-t-amber-400"
+          className="flex items-center justify-between border-b-2 border-[#52526b] pb-4 cursor-grab active:cursor-grabbing select-none bg-[#323244] -mx-8 -mt-8 p-5 border-t-4 border-t-amber-400"
         >
-          <div className="flex items-center gap-2.5">
+          <div className="flex items-center gap-3">
             <GripHorizontal className="w-5 h-5 text-amber-400" />
-            <h3 className="font-mono font-extrabold text-sm uppercase tracking-wider text-amber-300">
+            <h3 className="font-mono font-black text-sm uppercase tracking-wider text-amber-300">
               {title}
             </h3>
           </div>
           <button
             type="button"
             onClick={onClose}
-            className="text-zinc-950 bg-white hover:bg-amber-300 font-bold p-1 border-2 border-white transition cursor-pointer"
+            className="text-zinc-950 bg-white hover:bg-amber-300 font-extrabold px-2 py-1 border-2 border-white transition cursor-pointer"
           >
             <X className="w-4 h-4" />
           </button>
         </div>
 
-        <div className="pt-1">
+        <div className="pt-2">
           {children}
         </div>
       </div>
@@ -180,6 +178,7 @@ export default function App() {
 
   const [isEditingNotes, setIsEditingNotes] = useState(false);
   const [editedNotes, setEditedNotes] = useState('');
+  const [isSyncingDocker, setIsSyncingDocker] = useState(false);
 
   const [isHostModalOpen, setIsHostModalOpen] = useState(false);
   const [isSubnetModalOpen, setIsSubnetModalOpen] = useState(false);
@@ -255,7 +254,24 @@ export default function App() {
     }
   }, [activeHost]);
 
-  // Subnet Validation
+  const handleSyncDocker = async () => {
+    setIsSyncingDocker(true);
+    try {
+      const res = await fetch(`${API_BASE}/integrations/docker/sync`, { method: 'POST' });
+      if (!res.ok) {
+        const errData = await res.json();
+        throw new Error(errData.detail || 'Docker socket sync failed.');
+      }
+      const data = await res.json();
+      alert(`Docker sync complete! Discovered ${data.total_discovered} containers, synchronized ${data.synced_count}.`);
+      fetchData();
+    } catch (err) {
+      alert(`Sync Fault: ${err.message}`);
+    } finally {
+      setIsSyncingDocker(false);
+    }
+  };
+
   const validateSubnetField = (field, value, allValues = newSubnet) => {
     const errs = { ...subnetErrors };
 
@@ -324,7 +340,6 @@ export default function App() {
     setSubnetErrors(errs);
   };
 
-  // Host Validation
   const validateHostField = (field, value, allValues = newHost) => {
     const errs = { ...hostErrors };
 
@@ -627,7 +642,7 @@ export default function App() {
   };
 
   return (
-    <div className="flex h-screen bg-[#18181f] text-zinc-100 font-sans select-none overflow-hidden">
+    <div className="flex h-screen bg-[#0d0d12] text-zinc-100 font-sans select-none overflow-hidden p-3.5">
       <input 
         type="file" 
         ref={fileInputRef} 
@@ -636,382 +651,393 @@ export default function App() {
         className="hidden" 
       />
 
-      {/* Sidebar */}
-      <aside className="w-64 border-r border-[#4b4b57] bg-[#1e1e26] flex flex-col justify-between">
-        <div>
-          {/* Header Brand */}
-          <div className="h-16 border-b border-[#4b4b57] px-6 flex items-center justify-between bg-[#242430]">
-            <div className="flex items-center gap-3">
-              <div className="p-1.5 border border-amber-400 bg-[#2d2d3c] text-amber-300">
-                <Network className="w-4 h-4" />
+      {/* Main Modular Chassis Frame */}
+      <div className="flex-1 flex overflow-hidden border-2 border-[#54546c] shadow-[0_0_25px_rgba(0,0,0,0.8)] bg-[#14141b]">
+
+        {/* Sidebar Frame */}
+        <aside className="w-72 border-r-2 border-[#54546c] bg-[#1a1a24] flex flex-col justify-between">
+          <div>
+            {/* Header Brand */}
+            <div className="h-20 border-b-2 border-[#54546c] px-6 flex items-center justify-between bg-[#232332]">
+              <div className="flex items-center gap-3.5">
+                <div className="p-2 border-2 border-amber-400 bg-[#2f2f42] text-amber-300 shadow">
+                  <Network className="w-5 h-5" />
+                </div>
+                <div>
+                  <span className="font-mono font-black text-sm tracking-wider text-amber-400 uppercase block">NetDock</span>
+                  <span className="text-[10px] text-zinc-300 font-mono tracking-wider block font-bold">TERMINAL // V1.0</span>
+                </div>
               </div>
-              <div>
-                <span className="font-mono font-bold text-xs tracking-wider text-amber-400 uppercase block">NetDock</span>
-                <span className="text-[10px] text-zinc-300 font-mono tracking-tight block">CONSOLE // V1.0</span>
+              <span className="text-[10px] font-mono border-2 border-amber-400 bg-amber-400/20 text-amber-300 px-2.5 py-1 uppercase tracking-widest font-black shadow-sm">
+                SYS_OK
+              </span>
+            </div>
+
+            {/* Navigation Links */}
+            <div className="px-6 pt-8 pb-3 text-xs font-mono text-amber-300 uppercase tracking-widest font-black">
+              // TELEMETRY
+            </div>
+            <nav className="px-4 space-y-3">
+              <button 
+                onClick={() => setActiveTab('roster')}
+                className={`w-full flex items-center gap-3.5 px-4 py-3 text-xs font-mono uppercase tracking-wider text-left transition shadow-md cursor-pointer border-2 ${
+                  activeTab === 'roster' 
+                    ? 'bg-amber-400 text-black font-black border-white ring-2 ring-amber-300' 
+                    : 'bg-[#333346] text-white hover:bg-[#43435c] hover:border-amber-400 border-[#60607a] font-extrabold'
+                }`}
+              >
+                <Server className={`w-4 h-4 ${activeTab === 'roster' ? 'text-black' : 'text-amber-300'}`} /> 01_HOST_ROSTER
+              </button>
+              <button 
+                onClick={() => setActiveTab('subnets')}
+                className={`w-full flex items-center gap-3.5 px-4 py-3 text-xs font-mono uppercase tracking-wider text-left transition shadow-md cursor-pointer border-2 ${
+                  activeTab === 'subnets' 
+                    ? 'bg-amber-400 text-black font-black border-white ring-2 ring-amber-300' 
+                    : 'bg-[#333346] text-white hover:bg-[#43435c] hover:border-amber-400 border-[#60607a] font-extrabold'
+                }`}
+              >
+                <Layers className={`w-4 h-4 ${activeTab === 'subnets' ? 'text-black' : 'text-amber-300'}`} /> 02_SUBNETS
+              </button>
+              <button 
+                onClick={() => setActiveTab('topology')}
+                className={`w-full flex items-center gap-3.5 px-4 py-3 text-xs font-mono uppercase tracking-wider text-left transition shadow-md cursor-pointer border-2 ${
+                  activeTab === 'topology' 
+                    ? 'bg-amber-400 text-black font-black border-white ring-2 ring-amber-300' 
+                    : 'bg-[#333346] text-white hover:bg-[#43435c] hover:border-amber-400 border-[#60607a] font-extrabold'
+                }`}
+              >
+                <Activity className={`w-4 h-4 ${activeTab === 'topology' ? 'text-black' : 'text-amber-300'}`} /> 03_MAP
+              </button>
+            </nav>
+
+            {/* Backup & Daemon Controls */}
+            <div className="px-6 pt-10 pb-3 text-xs font-mono text-amber-300 uppercase tracking-widest font-black">
+              // DATA_OPS
+            </div>
+            <div className="px-4 space-y-3">
+              <button 
+                onClick={handleSyncDocker}
+                disabled={isSyncingDocker}
+                className="w-full flex items-center gap-3.5 px-4 py-3 text-xs font-mono text-left font-black text-zinc-950 bg-amber-400 hover:bg-amber-300 border-2 border-white shadow-md transition cursor-pointer"
+              >
+                <RefreshCw className={`w-4 h-4 ${isSyncingDocker ? 'animate-spin' : ''}`} /> 
+                {isSyncingDocker ? 'SYNCING_DAEMON...' : 'SYNC_DOCKER'}
+              </button>
+              <button 
+                onClick={handleExportBackup}
+                className="w-full flex items-center gap-3.5 px-4 py-3 text-xs font-mono text-left font-extrabold text-white bg-[#333346] hover:bg-[#43435c] hover:text-amber-300 border-2 border-[#60607a] hover:border-amber-400 shadow-md transition cursor-pointer"
+              >
+                <Download className="w-4 h-4 text-amber-300" /> DUMP_BACKUP
+              </button>
+              <button 
+                onClick={() => fileInputRef.current?.click()}
+                className="w-full flex items-center gap-3.5 px-4 py-3 text-xs font-mono text-left font-extrabold text-white bg-[#333346] hover:bg-[#43435c] hover:text-amber-300 border-2 border-[#60607a] hover:border-amber-400 shadow-md transition cursor-pointer"
+              >
+                <Upload className="w-4 h-4 text-amber-300" /> RESTORE_BACKUP
+              </button>
+            </div>
+          </div>
+
+          {/* Sidebar Footer */}
+          <div className="p-5 border-t-2 border-[#54546c] text-xs font-mono text-zinc-200 flex justify-between items-center bg-[#232332]">
+            <span className="font-extrabold text-zinc-300 tracking-wider">ENGINE: SQLITE_WAL</span>
+            <button onClick={fetchData} title="Sync database" className="p-2 hover:text-amber-300 hover:bg-[#38384e] border-2 border-[#60607a] transition cursor-pointer">
+              <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+            </button>
+          </div>
+        </aside>
+
+        {/* Main Content Arena */}
+        <div className="flex-1 flex flex-col overflow-hidden bg-[#14141b]">
+          <header className="h-20 border-b-2 border-[#54546c] px-10 flex items-center justify-between bg-[#1f1f2b]">
+            <div className="flex items-center gap-5 text-xs font-mono">
+              <div className="border-2 border-[#54546c] bg-[#29293a] px-4 py-2 flex items-center gap-3.5 shadow">
+                <span className="text-zinc-300 uppercase tracking-widest text-[11px] font-black">TOTAL:</span>
+                <span className="font-black text-white text-base">{stats.total}</span>
+              </div>
+              <div className="border-2 border-[#54546c] bg-[#29293a] px-4 py-2 flex items-center gap-3.5 shadow">
+                <span className="text-zinc-300 uppercase tracking-widest text-[11px] font-black">ACTIVE:</span>
+                <span className="font-black text-amber-400 text-base">{stats.active}</span>
+              </div>
+              <div className="border-2 border-[#54546c] bg-[#29293a] px-4 py-2 flex items-center gap-3.5 shadow">
+                <span className="text-zinc-300 uppercase tracking-widest text-[11px] font-black">CONTAINERS:</span>
+                <span className="font-black text-sky-400 text-base">{stats.containers}</span>
               </div>
             </div>
-            <span className="text-[10px] font-mono border border-amber-400 bg-amber-400/20 text-amber-300 px-2 py-0.5 uppercase tracking-widest font-bold">
-              SYS_OK
-            </span>
-          </div>
 
-          {/* Navigation Links */}
-          <div className="px-6 pt-7 pb-2.5 text-xs font-mono text-amber-300 uppercase tracking-widest font-black">
-            // TELEMETRY
-          </div>
-          <nav className="px-3 space-y-2.5">
-            <button 
-              onClick={() => setActiveTab('roster')}
-              className={`w-full flex items-center gap-3 px-4 py-3 text-xs font-mono uppercase tracking-wider text-left transition shadow-md cursor-pointer border-2 ${
-                activeTab === 'roster' 
-                  ? 'bg-amber-400 text-black font-black border-white ring-2 ring-amber-300' 
-                  : 'bg-[#3e3e52] text-white hover:bg-[#4d4d65] hover:border-amber-400 border-[#6a6a84] font-extrabold'
-              }`}
-            >
-              <Server className={`w-4 h-4 ${activeTab === 'roster' ? 'text-black' : 'text-amber-300'}`} /> 01_HOST_ROSTER
-            </button>
-            <button 
-              onClick={() => setActiveTab('subnets')}
-              className={`w-full flex items-center gap-3 px-4 py-3 text-xs font-mono uppercase tracking-wider text-left transition shadow-md cursor-pointer border-2 ${
-                activeTab === 'subnets' 
-                  ? 'bg-amber-400 text-black font-black border-white ring-2 ring-amber-300' 
-                  : 'bg-[#3e3e52] text-white hover:bg-[#4d4d65] hover:border-amber-400 border-[#6a6a84] font-extrabold'
-              }`}
-            >
-              <Layers className={`w-4 h-4 ${activeTab === 'subnets' ? 'text-black' : 'text-amber-300'}`} /> 02_SUBNETS
-            </button>
-            <button 
-              onClick={() => setActiveTab('topology')}
-              className={`w-full flex items-center gap-3 px-4 py-3 text-xs font-mono uppercase tracking-wider text-left transition shadow-md cursor-pointer border-2 ${
-                activeTab === 'topology' 
-                  ? 'bg-amber-400 text-black font-black border-white ring-2 ring-amber-300' 
-                  : 'bg-[#3e3e52] text-white hover:bg-[#4d4d65] hover:border-amber-400 border-[#6a6a84] font-extrabold'
-              }`}
-            >
-              <Activity className={`w-4 h-4 ${activeTab === 'topology' ? 'text-black' : 'text-amber-300'}`} /> 03_MAP
-            </button>
-          </nav>
-
-          {/* Backup & Tools */}
-          <div className="px-6 pt-8 pb-2.5 text-xs font-mono text-amber-300 uppercase tracking-widest font-black">
-            // DATA_OPS
-          </div>
-          <div className="px-3 space-y-2.5">
-            <button 
-              onClick={handleExportBackup}
-              className="w-full flex items-center gap-3 px-4 py-2.5 text-xs font-mono text-left font-extrabold text-white bg-[#3e3e52] hover:bg-[#4d4d65] hover:text-amber-300 border-2 border-[#6a6a84] hover:border-amber-400 shadow-md transition cursor-pointer"
-            >
-              <Download className="w-4 h-4 text-amber-300" /> DUMP_BACKUP
-            </button>
-            <button 
-              onClick={() => fileInputRef.current?.click()}
-              className="w-full flex items-center gap-3 px-4 py-2.5 text-xs font-mono text-left font-extrabold text-white bg-[#3e3e52] hover:bg-[#4d4d65] hover:text-amber-300 border-2 border-[#6a6a84] hover:border-amber-400 shadow-md transition cursor-pointer"
-            >
-              <Upload className="w-4 h-4 text-amber-300" /> RESTORE_BACKUP
-            </button>
-          </div>
-        </div>
-
-        {/* Footer */}
-        <div className="p-4 border-t border-[#4b4b57] text-xs font-mono text-zinc-200 flex justify-between items-center bg-[#242430]">
-          <span className="font-semibold text-zinc-300">ENGINE: SQLITE_WAL</span>
-          <button onClick={fetchData} title="Sync database" className="p-1.5 hover:text-amber-300 hover:bg-[#31313e] border border-[#4b4b57] transition">
-            <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
-          </button>
-        </div>
-      </aside>
-
-      {/* Main Console Workspace */}
-      <div className="flex-1 flex flex-col overflow-hidden bg-[#18181f]">
-        {/* Top Control Bar */}
-        <header className="h-16 border-b border-[#4b4b57] px-8 flex items-center justify-between bg-[#22222b]">
-          <div className="flex items-center gap-4 text-xs font-mono">
-            <div className="border border-[#4b4b57] bg-[#2a2a35] px-3.5 py-1.5 flex items-center gap-3 shadow-inner">
-              <span className="text-zinc-300 uppercase tracking-wider text-[10px] font-bold">TOTAL:</span>
-              <span className="font-bold text-white text-sm">{stats.total}</span>
+            <div className="flex items-center gap-5">
+              <div className="relative flex items-center">
+                <Search className="w-4 h-4 absolute left-4 text-amber-400 pointer-events-none" />
+                <input 
+                  type="text" 
+                  placeholder="SEARCH HOST / IP / MAC..."
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  className="bg-[#14141b] border-2 border-[#54546c] hover:border-zinc-300 focus:border-amber-400 pl-11 pr-5 py-2.5 text-xs font-mono text-zinc-100 placeholder-zinc-400 focus:outline-none w-80 uppercase transition shadow-inner font-bold"
+                />
+              </div>
+              
+              {activeTab === 'subnets' ? (
+                <button 
+                  onClick={() => setIsSubnetModalOpen(true)}
+                  className="bg-amber-400 hover:bg-amber-300 active:bg-amber-500 text-zinc-950 font-mono font-black px-5 py-2.5 text-xs transition flex items-center gap-2.5 border-2 border-white uppercase tracking-wider shadow-md cursor-pointer"
+                >
+                  <Plus className="w-4 h-4 stroke-[3]" /> NEW_SUBNET
+                </button>
+              ) : (
+                <button 
+                  onClick={() => setIsHostModalOpen(true)}
+                  className="bg-amber-400 hover:bg-amber-300 active:bg-amber-500 text-zinc-950 font-mono font-black px-5 py-2.5 text-xs transition flex items-center gap-2.5 border-2 border-white uppercase tracking-wider shadow-md cursor-pointer"
+                >
+                  <Plus className="w-4 h-4 stroke-[3]" /> PROVISION_HOST
+                </button>
+              )}
             </div>
-            <div className="border border-[#4b4b57] bg-[#2a2a35] px-3.5 py-1.5 flex items-center gap-3 shadow-inner">
-              <span className="text-zinc-300 uppercase tracking-wider text-[10px] font-bold">ACTIVE:</span>
-              <span className="font-bold text-amber-300 text-sm">{stats.active}</span>
-            </div>
-            <div className="border border-[#4b4b57] bg-[#2a2a35] px-3.5 py-1.5 flex items-center gap-3 shadow-inner">
-              <span className="text-zinc-300 uppercase tracking-wider text-[10px] font-bold">CONTAINERS:</span>
-              <span className="font-bold text-sky-300 text-sm">{stats.containers}</span>
-            </div>
-          </div>
+          </header>
 
-          <div className="flex items-center gap-4">
-            <div className="relative flex items-center">
-              <Search className="w-4 h-4 absolute left-3.5 text-amber-400 pointer-events-none" />
-              <input 
-                type="text" 
-                placeholder="GREP HOST / IP / MAC..."
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                className="bg-[#181820] border-2 border-[#4b4b57] hover:border-zinc-400 focus:border-amber-400 pl-10 pr-4 py-1.5 text-xs font-mono text-zinc-100 placeholder-zinc-400 focus:outline-none w-72 uppercase transition shadow-inner"
-              />
+          {error && (
+            <div className="bg-red-950/80 border-b-2 border-red-600 px-10 py-3 text-xs font-mono text-red-200 flex items-center gap-3 font-bold">
+              <AlertCircle className="w-5 h-5 text-red-400" />
+              <span>[COMM_FAULT]: {error}</span>
             </div>
-            
-            {activeTab === 'subnets' ? (
-              <button 
-                onClick={() => setIsSubnetModalOpen(true)}
-                className="bg-amber-400 hover:bg-amber-300 active:bg-amber-500 text-zinc-950 font-mono font-bold px-4 py-2 text-xs transition flex items-center gap-2 border border-amber-300 uppercase tracking-wider shadow cursor-pointer"
-              >
-                <Plus className="w-4 h-4 text-zinc-950" /> NEW_SUBNET
-              </button>
-            ) : (
-              <button 
-                onClick={() => setIsHostModalOpen(true)}
-                className="bg-amber-400 hover:bg-amber-300 active:bg-amber-500 text-zinc-950 font-mono font-bold px-4 py-2 text-xs transition flex items-center gap-2 border border-amber-300 uppercase tracking-wider shadow cursor-pointer"
-              >
-                <Plus className="w-4 h-4 text-zinc-950" /> PROVISION_HOST
-              </button>
-            )}
-          </div>
-        </header>
+          )}
 
-        {error && (
-          <div className="bg-red-950/80 border-b border-red-600 px-8 py-2 text-xs font-mono text-red-200 flex items-center gap-2 font-bold">
-            <AlertCircle className="w-4 h-4 text-red-400" />
-            <span>[COMM_FAULT]: {error}</span>
-          </div>
-        )}
+          <main className="flex-1 flex overflow-hidden">
+            {/* TAB 1: ROSTER */}
+            {activeTab === 'roster' && (
+              <>
+                <div className="flex-1 overflow-y-auto border-r-2 border-[#54546c] p-10 space-y-6 bg-[#14141b]">
+                  <div className="border-b-2 border-[#54546c] pb-4 flex justify-between items-end">
+                    <div>
+                      <h1 className="text-base font-mono font-black uppercase tracking-wider text-amber-400">// REGISTERED_HOSTS [{filteredHosts.length}]</h1>
+                      <p className="text-xs text-zinc-300 mt-1.5 font-medium">
+                        Managed bare-metal hypervisors, virtualization nodes, and container runtimes.
+                      </p>
+                    </div>
+                  </div>
 
-        <main className="flex-1 flex overflow-hidden">
-          {/* TAB 1: ROSTER */}
-          {activeTab === 'roster' && (
-            <>
-              <div className="flex-1 overflow-y-auto border-r border-[#4b4b57] p-8 space-y-4 bg-[#18181f]">
-                <div className="border-b border-[#4b4b57] pb-3 flex justify-between items-end">
-                  <div>
-                    <h1 className="text-sm font-mono font-bold uppercase tracking-wider text-amber-300">// REGISTERED_HOSTS [{filteredHosts.length}]</h1>
-                    <p className="text-xs text-zinc-300 mt-1">
-                      Managed bare-metal machines, hypervisors, and container instances.
-                    </p>
+                  {filteredHosts.length === 0 && !loading && (
+                    <div className="text-xs font-mono text-zinc-200 p-12 border-2 border-dashed border-[#54546c] bg-[#1d1d28] text-center font-bold">
+                      NO HOSTS REGISTERED. USE [PROVISION_HOST] OR [SYNC_DOCKER] TO POPULATE.
+                    </div>
+                  )}
+
+                  <div className="space-y-4">
+                    {filteredHosts.map(host => (
+                      <div
+                        key={host.id}
+                        onClick={() => setSelectedHostId(host.id)}
+                        className={`p-5 border-2 transition cursor-pointer select-none ${
+                          host.id === activeHost?.id 
+                            ? 'border-amber-400 bg-[#292938] shadow-xl ring-2 ring-amber-400/50' 
+                            : 'border-[#4e4e66] bg-[#1d1d28] hover:border-amber-400 hover:bg-[#252534]'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between">
+                          <div className="font-mono text-xs text-zinc-100 flex items-center gap-3">
+                            <span className={`w-3 h-3 ${host.status === 'active' ? 'bg-amber-400 shadow-[0_0_10px_rgba(251,191,36,0.9)]' : 'bg-red-500'}`} />
+                            <span className="font-black tracking-wide text-base">{host.hostname}</span>
+                          </div>
+                          <span className="text-sm font-mono text-amber-300 font-black px-3 py-1 bg-[#121218] border-2 border-[#54546c]">
+                            {host.ip}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-5 mt-4 text-xs font-mono">
+                          <span className="border-2 border-[#62627e] bg-[#2d2d3e] px-2.5 py-0.5 text-zinc-100 uppercase font-black">
+                            {host.device_type}
+                          </span>
+                          <span className="text-zinc-300 font-bold">{host.mac || 'NO_MAC_LOGGED'}</span>
+                        </div>
+                      </div>
+                    ))}
                   </div>
                 </div>
 
-                {filteredHosts.length === 0 && !loading && (
-                  <div className="text-xs font-mono text-zinc-200 p-8 border-2 border-dashed border-[#4b4b57] bg-[#22222b] text-center">
-                    NO HOSTS REGISTERED. USE [PROVISION_HOST] TO ADD AN ASSET.
-                  </div>
-                )}
-
-                <div className="space-y-3 mt-4">
-                  {filteredHosts.map(host => (
-                    <div
-                      key={host.id}
-                      onClick={() => setSelectedHostId(host.id)}
-                      className={`p-4 border-2 transition cursor-pointer select-none ${
-                        host.id === activeHost?.id 
-                          ? 'border-amber-400 bg-[#2d2d3a] shadow-lg ring-2 ring-amber-400/40' 
-                          : 'border-[#444452] bg-[#23232c] hover:border-amber-400 hover:bg-[#2b2b36]'
-                      }`}
-                    >
-                      <div className="flex items-center justify-between">
-                        <div className="font-mono text-xs text-zinc-100 flex items-center gap-2.5">
-                          <span className={`w-2.5 h-2.5 ${host.status === 'active' ? 'bg-amber-400 shadow-[0_0_8px_rgba(251,191,36,0.9)]' : 'bg-red-500'}`} />
-                          <span className="font-bold tracking-wide text-sm">{host.hostname}</span>
+                {/* Host Inspector Drawer */}
+                <div className="w-[540px] bg-[#1b1b24] overflow-y-auto p-10 space-y-8 border-l-2 border-[#54546c]">
+                  {activeHost ? (
+                    <>
+                      <div className="flex items-start justify-between border-b-2 border-[#54546c] pb-5">
+                        <div>
+                          <h2 className="text-xl font-mono font-black text-amber-300">&gt; {activeHost.hostname}</h2>
+                          <p className="text-xs text-zinc-300 font-mono mt-1 font-bold">KERNEL: {activeHost.os}</p>
                         </div>
-                        <span className="text-xs font-mono text-amber-300 font-bold px-2.5 py-1 bg-[#1a1a22] border border-[#4b4b57]">
-                          {host.ip}
-                        </span>
+                        <div className="flex items-center gap-3">
+                          <span className="text-xs font-mono border-2 border-amber-400 bg-amber-400/20 text-amber-300 px-3 py-1 uppercase tracking-wider font-black">
+                            {activeHost.status}
+                          </span>
+                          <button 
+                            onClick={() => handleDeleteHost(activeHost.id)}
+                            className="p-2 text-zinc-300 hover:text-red-300 hover:bg-red-950/60 border-2 border-[#54546c] hover:border-red-500 transition cursor-pointer"
+                            title="Drop Host"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
                       </div>
-                      <div className="flex items-center gap-4 mt-3 text-[11px] font-mono">
-                        <span className="border border-[#555566] bg-[#2f2f3d] px-2 py-0.5 text-zinc-100 uppercase font-bold">
-                          {host.device_type}
-                        </span>
-                        <span className="text-zinc-300 font-medium">{host.mac || 'NO_MAC'}</span>
+
+                      <div className="grid grid-cols-2 gap-4 text-xs font-mono">
+                        <div className="border-2 border-[#54546c] p-4 bg-[#232330] shadow">
+                          <span className="text-zinc-300 block text-[11px] uppercase font-black tracking-wider">// IP_ADDRESS</span>
+                          <span className="text-amber-400 font-black text-base mt-1.5 block">{activeHost.ip}</span>
+                        </div>
+                        <div className="border-2 border-[#54546c] p-4 bg-[#232330] shadow">
+                          <span className="text-zinc-300 block text-[11px] uppercase font-black tracking-wider">// MAC_ADDRESS</span>
+                          <span className="text-zinc-100 text-xs mt-1.5 block font-bold">{activeHost.mac || 'N/A'}</span>
+                        </div>
+                        <div className="border-2 border-[#54546c] p-4 bg-[#232330] shadow">
+                          <span className="text-zinc-300 block text-[11px] uppercase font-black tracking-wider">// SUBNET</span>
+                          <span className="text-zinc-100 text-xs mt-1.5 block truncate font-black">
+                            {subnets.find(s => s.id === activeHost.subnet_id)?.name || activeHost.subnet_id}
+                          </span>
+                        </div>
+                        <div className="border-2 border-[#54546c] p-4 bg-[#232330] shadow">
+                          <span className="text-zinc-300 block text-[11px] uppercase font-black tracking-wider">// PARENT_HOST</span>
+                          <span className="text-zinc-100 text-xs mt-1.5 block font-black">{activeHost.parent_id || 'STANDALONE'}</span>
+                        </div>
+                      </div>
+
+                      <div className="space-y-4 pt-2">
+                        <div className="flex items-center justify-between border-b-2 border-[#54546c] pb-3">
+                          <span className="text-xs font-mono font-black uppercase tracking-wider text-amber-300">
+                            // RUNBOOK_NOTES
+                          </span>
+                          {!isEditingNotes ? (
+                            <button 
+                              onClick={() => setIsEditingNotes(true)}
+                              className="text-xs font-mono text-amber-300 hover:text-amber-200 hover:underline flex items-center gap-1.5 font-black cursor-pointer bg-[#292938] px-3 py-1 border border-[#54546c]"
+                            >
+                              <Edit3 className="w-3.5 h-3.5" /> [EDIT]
+                            </button>
+                          ) : (
+                            <div className="flex gap-3 text-xs font-mono">
+                              <button onClick={handleSaveNotes} className="text-zinc-950 font-black bg-white hover:bg-amber-300 px-3 py-1 border border-white cursor-pointer">
+                                [SAVE]
+                              </button>
+                              <button onClick={() => setIsEditingNotes(false)} className="text-white hover:bg-zinc-800 px-3 py-1 border border-zinc-600 cursor-pointer">
+                                [CANCEL]
+                              </button>
+                            </div>
+                          )}
+                        </div>
+
+                        {isEditingNotes ? (
+                          <textarea
+                            rows={12}
+                            value={editedNotes}
+                            onChange={(e) => setEditedNotes(e.target.value)}
+                            placeholder="INPUT SYSTEM CONFIGURATION, EXPOSED PORTS, OR WORKLOAD RUNBOOKS..."
+                            className="w-full bg-[#14141b] border-2 border-amber-400 p-4 text-xs font-mono text-zinc-100 focus:outline-none focus:border-amber-300 leading-relaxed shadow-inner font-medium"
+                          />
+                        ) : (
+                          <div className="text-xs font-mono bg-[#232330] p-5 border-2 border-[#54546c] text-zinc-100 whitespace-pre-wrap leading-relaxed min-h-[170px] shadow font-medium">
+                            {activeHost.notes || 'NO DOCUMENTATION RECORDED. CLICK [EDIT] TO ADD SYSTEM NOTES.'}
+                          </div>
+                        )}
+                      </div>
+                    </>
+                  ) : (
+                    <div className="text-xs font-mono text-zinc-300">SELECT A HOST TO INSPECT ATTRIBUTES.</div>
+                  )}
+                </div>
+              </>
+            )}
+
+            {/* TAB 2: SUBNETS */}
+            {activeTab === 'subnets' && (
+              <div className="p-10 space-y-7 flex-1 overflow-y-auto bg-[#14141b]">
+                <div className="border-b-2 border-[#54546c] pb-4">
+                  <h1 className="text-base font-mono font-black uppercase tracking-wider text-amber-400">// CONFIGURED_SUBNETS</h1>
+                  <p className="text-xs text-zinc-300 mt-1.5 font-medium">
+                    Private broadcast domains, router gateways, and VLAN boundaries.
+                  </p>
+                </div>
+
+                <div className="grid gap-5">
+                  {subnets.map(s => {
+                    const assigned = hosts.filter(h => h.subnet_id === s.id).length;
+                    return (
+                      <div key={s.id} className="p-6 bg-[#1d1d28] border-2 border-[#54546c] hover:border-amber-400 hover:bg-[#252534] transition shadow">
+                        <div className="flex justify-between items-center mb-3">
+                          <div className="flex items-center gap-4">
+                            <span className="font-mono font-black text-base text-zinc-100">&gt; {s.name}</span>
+                            <span className="text-xs font-mono border-2 border-sky-400 bg-sky-400/20 text-sky-200 px-3 py-0.5 uppercase font-black">
+                              VLAN_{s.vlan}
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-5">
+                            <span className="text-sm font-mono text-amber-300 font-black bg-[#121218] px-3.5 py-1.5 border-2 border-[#54546c]">{s.cidr}</span>
+                            <button
+                              onClick={() => handleDeleteSubnet(s)}
+                              className="p-2 text-zinc-300 hover:text-red-300 hover:bg-red-950/60 border-2 border-[#54546c] hover:border-red-500 transition cursor-pointer"
+                              title="Drop Subnet"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </div>
+                        </div>
+                        <div className="text-xs font-mono text-zinc-200 mt-3 font-semibold">
+                          GATEWAY: <span className="text-white font-black">{s.gateway}</span>
+                        </div>
+                        <div className="text-xs font-mono text-zinc-300 mt-1.5 font-semibold">
+                          ALLOCATED_HOSTS: <span className={assigned > 0 ? "text-amber-300 font-black" : "text-zinc-400"}>{assigned}</span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {/* TAB 3: TOPOLOGY */}
+            {activeTab === 'topology' && (
+              <div className="p-10 space-y-7 flex-1 overflow-y-auto bg-[#14141b]">
+                <div className="border-b-2 border-[#54546c] pb-4">
+                  <h1 className="text-base font-mono font-black uppercase tracking-wider text-amber-400">// TOPOLOGY_TREE</h1>
+                  <p className="text-xs text-zinc-300 mt-1.5 font-medium">
+                    Hierarchical structure of hypervisors, physical nodes, and containerized runtimes.
+                  </p>
+                </div>
+
+                <div className="space-y-6 font-mono">
+                  {hosts.filter(h => !h.parent_id).map(parent => (
+                    <div key={parent.id} className="border-2 border-[#54546c] bg-[#1d1d28] p-6 shadow-md">
+                      <div className="flex items-center gap-3.5 font-black text-sm text-amber-300">
+                        <Server className="w-5 h-5 text-amber-400" />
+                        <span className="text-base text-zinc-100">{parent.hostname}</span>
+                        <span className="text-zinc-300 font-bold text-xs">[{parent.ip}] ({parent.device_type.toUpperCase()})</span>
+                      </div>
+                      <div className="ml-6 mt-5 border-l-4 border-[#54546c] pl-6 space-y-3.5">
+                        {hosts.filter(h => h.parent_id === parent.id).map(child => (
+                          <div key={child.id} className="text-xs flex items-center gap-3.5 text-zinc-200 bg-[#242432] p-3 border-2 border-[#4e4e66]">
+                            <span className="text-amber-400 font-black">|--</span>
+                            <span className="font-black text-sm text-zinc-100">{child.hostname}</span>
+                            <span className="text-amber-300 font-black">[{child.ip}]</span>
+                            <span className="text-[11px] border border-[#686884] bg-[#2e2e3e] px-2 py-0.5 text-zinc-200 uppercase font-black ml-auto">
+                              {child.device_type}
+                            </span>
+                          </div>
+                        ))}
                       </div>
                     </div>
                   ))}
                 </div>
               </div>
-
-              {/* Host Inspector Drawer */}
-              <div className="w-[490px] bg-[#1e1e26] overflow-y-auto p-8 space-y-7 border-l border-[#4b4b57]">
-                {activeHost ? (
-                  <>
-                    <div className="flex items-start justify-between border-b border-[#4b4b57] pb-4">
-                      <div>
-                        <h2 className="text-lg font-mono font-bold text-amber-300">&gt; {activeHost.hostname}</h2>
-                        <p className="text-xs text-zinc-300 font-mono mt-0.5 font-medium">KERNEL: {activeHost.os}</p>
-                      </div>
-                      <div className="flex items-center gap-3">
-                        <span className="text-[10px] font-mono border-2 border-amber-400 bg-amber-400/20 text-amber-300 px-2 py-0.5 uppercase tracking-wider font-bold">
-                          {activeHost.status}
-                        </span>
-                        <button 
-                          onClick={() => handleDeleteHost(activeHost.id)}
-                          className="p-1.5 text-zinc-300 hover:text-red-300 hover:bg-red-950/60 border border-[#4b4b57] hover:border-red-500 transition cursor-pointer"
-                          title="Drop Host"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      </div>
-                    </div>
-
-                    <div className="grid grid-cols-2 gap-3.5 text-xs font-mono">
-                      <div className="border border-[#4b4b57] p-3.5 bg-[#252530]">
-                        <span className="text-zinc-300 block text-[10px] uppercase font-bold tracking-wider">// IP_ADDRESS</span>
-                        <span className="text-amber-300 font-bold text-sm mt-1 block">{activeHost.ip}</span>
-                      </div>
-                      <div className="border border-[#4b4b57] p-3.5 bg-[#252530]">
-                        <span className="text-zinc-300 block text-[10px] uppercase font-bold tracking-wider">// MAC_ADDRESS</span>
-                        <span className="text-zinc-100 text-xs mt-1 block font-medium">{activeHost.mac || 'N/A'}</span>
-                      </div>
-                      <div className="border border-[#4b4b57] p-3.5 bg-[#252530]">
-                        <span className="text-zinc-300 block text-[10px] uppercase font-bold tracking-wider">// SUBNET</span>
-                        <span className="text-zinc-100 text-xs mt-1 block truncate font-bold">
-                          {subnets.find(s => s.id === activeHost.subnet_id)?.name || activeHost.subnet_id}
-                        </span>
-                      </div>
-                      <div className="border border-[#4b4b57] p-3.5 bg-[#252530]">
-                        <span className="text-zinc-300 block text-[10px] uppercase font-bold tracking-wider">// PARENT_HOST</span>
-                        <span className="text-zinc-100 text-xs mt-1 block font-bold">{activeHost.parent_id || 'NONE'}</span>
-                      </div>
-                    </div>
-
-                    <div className="space-y-3">
-                      <div className="flex items-center justify-between border-b border-[#4b4b57] pb-2">
-                        <span className="text-xs font-mono font-bold uppercase tracking-wider text-amber-300">
-                          // RUNBOOK_NOTES
-                        </span>
-                        {!isEditingNotes ? (
-                          <button 
-                            onClick={() => setIsEditingNotes(true)}
-                            className="text-xs font-mono text-amber-300 hover:text-amber-200 hover:underline flex items-center gap-1.5 font-bold cursor-pointer"
-                          >
-                            <Edit3 className="w-3.5 h-3.5" /> [EDIT]
-                          </button>
-                        ) : (
-                          <div className="flex gap-3 text-xs font-mono">
-                            <button onClick={handleSaveNotes} className="text-amber-300 font-bold hover:underline cursor-pointer">
-                              [SAVE]
-                            </button>
-                            <button onClick={() => setIsEditingNotes(false)} className="text-zinc-300 hover:text-white cursor-pointer">
-                              [CANCEL]
-                            </button>
-                          </div>
-                        )}
-                      </div>
-
-                      {isEditingNotes ? (
-                        <textarea
-                          rows={10}
-                          value={editedNotes}
-                          onChange={(e) => setEditedNotes(e.target.value)}
-                          placeholder="INPUT SYSTEM CONFIGURATION OR PORT MAPPINGS..."
-                          className="w-full bg-[#181820] border-2 border-amber-400 p-3 text-xs font-mono text-zinc-100 focus:outline-none focus:border-amber-300 leading-relaxed shadow-inner"
-                        />
-                      ) : (
-                        <div className="text-xs font-mono bg-[#23232d] p-4 border border-[#4b4b57] text-zinc-100 whitespace-pre-wrap leading-relaxed min-h-[140px]">
-                          {activeHost.notes || 'NO DOCUMENTATION RECORDED. CLICK [EDIT] TO ADD SYSTEM NOTES.'}
-                        </div>
-                      )}
-                    </div>
-                  </>
-                ) : (
-                  <div className="text-xs font-mono text-zinc-300">SELECT A HOST TO INSPECT ATTRIBUTES.</div>
-                )}
-              </div>
-            </>
-          )}
-
-          {/* TAB 2: SUBNETS */}
-          {activeTab === 'subnets' && (
-            <div className="p-8 space-y-6 flex-1 overflow-y-auto bg-[#18181f]">
-              <div className="border-b border-[#4b4b57] pb-4">
-                <h1 className="text-sm font-mono font-bold uppercase tracking-wider text-amber-300">// CONFIGURED_SUBNETS</h1>
-                <p className="text-xs text-zinc-300 mt-1">
-                  Private broadcast domains and network boundaries.
-                </p>
-              </div>
-
-              <div className="grid gap-4">
-                {subnets.map(s => {
-                  const assigned = hosts.filter(h => h.subnet_id === s.id).length;
-                  return (
-                    <div key={s.id} className="p-5 bg-[#23232c] border-2 border-[#444452] hover:border-amber-400 hover:bg-[#2b2b36] transition">
-                      <div className="flex justify-between items-center mb-2">
-                        <div className="flex items-center gap-3">
-                          <span className="font-mono font-bold text-sm text-zinc-100">&gt; {s.name}</span>
-                          <span className="text-[10px] font-mono border-2 border-sky-400 bg-sky-400/20 text-sky-200 px-2.5 py-0.5 uppercase font-bold">
-                            VLAN_{s.vlan}
-                          </span>
-                        </div>
-                        <div className="flex items-center gap-4">
-                          <span className="text-xs font-mono text-amber-300 font-bold bg-[#1a1a22] px-2.5 py-1 border border-[#4b4b57]">{s.cidr}</span>
-                          <button
-                            onClick={() => handleDeleteSubnet(s)}
-                            className="p-1.5 text-zinc-300 hover:text-red-300 hover:bg-red-950/60 border border-[#4b4b57] hover:border-red-500 transition cursor-pointer"
-                            title="Drop Subnet"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
-                        </div>
-                      </div>
-                      <div className="text-xs font-mono text-zinc-200 mt-2">
-                        GATEWAY: <span className="text-white font-bold">{s.gateway}</span>
-                      </div>
-                      <div className="text-xs font-mono text-zinc-300 mt-1">
-                        ALLOCATED_HOSTS: <span className={assigned > 0 ? "text-amber-300 font-bold" : "text-zinc-400"}>{assigned}</span>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          )}
-
-          {/* TAB 3: TOPOLOGY */}
-          {activeTab === 'topology' && (
-            <div className="p-8 space-y-6 flex-1 overflow-y-auto bg-[#18181f]">
-              <div className="border-b border-[#4b4b57] pb-4">
-                <h1 className="text-sm font-mono font-bold uppercase tracking-wider text-amber-300">// TOPOLOGY_TREE</h1>
-                <p className="text-xs text-zinc-300 mt-1">
-                  Hierarchical structure of hypervisors, physical hosts, and containerized runtimes.
-                </p>
-              </div>
-
-              <div className="space-y-4 font-mono">
-                {hosts.filter(h => !h.parent_id).map(parent => (
-                  <div key={parent.id} className="border-2 border-[#4b4b57] bg-[#23232c] p-5 shadow">
-                    <div className="flex items-center gap-3 font-bold text-xs text-amber-300">
-                      <Server className="w-4 h-4 text-amber-400" />
-                      <span className="text-sm text-zinc-100">{parent.hostname}</span>
-                      <span className="text-zinc-300 font-normal">[{parent.ip}] ({parent.device_type.toUpperCase()})</span>
-                    </div>
-                    <div className="ml-5 mt-4 border-l-2 border-[#555566] pl-4 space-y-2.5">
-                      {hosts.filter(h => h.parent_id === parent.id).map(child => (
-                        <div key={child.id} className="text-xs flex items-center gap-3 text-zinc-200">
-                          <span className="text-amber-400 font-bold">|--</span>
-                          <span className="font-bold text-zinc-100">{child.hostname}</span>
-                          <span className="text-amber-300 font-semibold">[{child.ip}]</span>
-                          <span className="text-[10px] border border-[#555566] bg-[#2e2e3a] px-1.5 py-0.5 text-zinc-200 uppercase font-bold">
-                            {child.device_type}
-                          </span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-        </main>
+            )}
+          </main>
+        </div>
       </div>
 
-      {/* High-Contrast Moveable Subnet Modal */}
+      {/* Draggable Subnet Modal */}
       {isSubnetModalOpen && (
         <DraggableModal 
           title="// ALLOCATE_SUBNET" 
           onClose={() => { setIsSubnetModalOpen(false); setSubnetErrors({}); }}
-          widthClass="w-[500px]"
+          widthClass="w-[520px]"
         >
-          <form onSubmit={handleCreateSubnet} className="space-y-5 text-xs font-mono">
+          <form onSubmit={handleCreateSubnet} className="space-y-6 text-xs font-mono">
             <div>
-              <label className="text-white block mb-1.5 uppercase text-xs font-extrabold tracking-wider">
+              <label className="text-white block mb-2 uppercase text-xs font-black tracking-wider">
                 Subnet Label
               </label>
               <input 
@@ -1023,16 +1049,16 @@ export default function App() {
                   setNewSubnet(prev => ({ ...prev, name: val }));
                   validateSubnetField('name', val);
                 }}
-                className={`w-full bg-[#3a3a4c] border-2 px-4 py-2.5 text-sm text-white font-bold placeholder-zinc-300 focus:outline-none transition shadow-inner ${
-                  subnetErrors.name ? 'border-red-400 bg-red-950/40' : 'border-[#6c6c82] focus:border-amber-300 focus:bg-[#434358]'
+                className={`w-full bg-[#353547] border-2 px-4 py-3 text-sm text-white font-bold placeholder-zinc-300 focus:outline-none transition shadow-inner ${
+                  subnetErrors.name ? 'border-red-400 bg-red-950/40' : 'border-[#6c6c86] focus:border-amber-300 focus:bg-[#3d3d52]'
                 }`}
               />
-              {subnetErrors.name && <p className="text-xs text-red-300 mt-1.5 font-bold">&gt; {subnetErrors.name}</p>}
+              {subnetErrors.name && <p className="text-xs text-red-300 mt-2 font-black">&gt; {subnetErrors.name}</p>}
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-2 gap-5">
               <div>
-                <label className="text-white block mb-1.5 uppercase text-xs font-extrabold tracking-wider">
+                <label className="text-white block mb-2 uppercase text-xs font-black tracking-wider">
                   CIDR Range
                 </label>
                 <input 
@@ -1045,14 +1071,14 @@ export default function App() {
                     setNewSubnet(updated);
                     validateSubnetField('cidr', val, updated);
                   }}
-                  className={`w-full bg-[#3a3a4c] border-2 px-4 py-2.5 text-sm text-white font-bold placeholder-zinc-300 focus:outline-none transition shadow-inner ${
-                    subnetErrors.cidr ? 'border-red-400 bg-red-950/40' : 'border-[#6c6c82] focus:border-amber-300 focus:bg-[#434358]'
+                  className={`w-full bg-[#353547] border-2 px-4 py-3 text-sm text-white font-bold placeholder-zinc-300 focus:outline-none transition shadow-inner ${
+                    subnetErrors.cidr ? 'border-red-400 bg-red-950/40' : 'border-[#6c6c86] focus:border-amber-300 focus:bg-[#3d3d52]'
                   }`}
                 />
-                {subnetErrors.cidr && <p className="text-xs text-red-300 mt-1.5 font-bold">&gt; {subnetErrors.cidr}</p>}
+                {subnetErrors.cidr && <p className="text-xs text-red-300 mt-2 font-black">&gt; {subnetErrors.cidr}</p>}
               </div>
               <div>
-                <label className="text-white block mb-1.5 uppercase text-xs font-extrabold tracking-wider">
+                <label className="text-white block mb-2 uppercase text-xs font-black tracking-wider">
                   VLAN Tag
                 </label>
                 <input 
@@ -1064,16 +1090,16 @@ export default function App() {
                     setNewSubnet(prev => ({ ...prev, vlan: val }));
                     validateSubnetField('vlan', val);
                   }}
-                  className={`w-full bg-[#3a3a4c] border-2 px-4 py-2.5 text-sm text-white font-bold placeholder-zinc-300 focus:outline-none transition shadow-inner ${
-                    subnetErrors.vlan ? 'border-red-400 bg-red-950/40' : 'border-[#6c6c82] focus:border-amber-300 focus:bg-[#434358]'
+                  className={`w-full bg-[#353547] border-2 px-4 py-3 text-sm text-white font-bold placeholder-zinc-300 focus:outline-none transition shadow-inner ${
+                    subnetErrors.vlan ? 'border-red-400 bg-red-950/40' : 'border-[#6c6c86] focus:border-amber-300 focus:bg-[#3d3d52]'
                   }`}
                 />
-                {subnetErrors.vlan && <p className="text-xs text-red-300 mt-1.5 font-bold">&gt; {subnetErrors.vlan}</p>}
+                {subnetErrors.vlan && <p className="text-xs text-red-300 mt-2 font-black">&gt; {subnetErrors.vlan}</p>}
               </div>
             </div>
 
             <div>
-              <label className="text-white block mb-1.5 uppercase text-xs font-extrabold tracking-wider">
+              <label className="text-white block mb-2 uppercase text-xs font-black tracking-wider">
                 Default Gateway
               </label>
               <input 
@@ -1086,26 +1112,25 @@ export default function App() {
                   setNewSubnet(updated);
                   validateSubnetField('gateway', val, updated);
                 }}
-                className={`w-full bg-[#3a3a4c] border-2 px-4 py-2.5 text-sm text-white font-bold placeholder-zinc-300 focus:outline-none transition shadow-inner ${
-                  subnetErrors.gateway ? 'border-red-400 bg-red-950/40' : 'border-[#6c6c82] focus:border-amber-300 focus:bg-[#434358]'
+                className={`w-full bg-[#353547] border-2 px-4 py-3 text-sm text-white font-bold placeholder-zinc-300 focus:outline-none transition shadow-inner ${
+                  subnetErrors.gateway ? 'border-red-400 bg-red-950/40' : 'border-[#6c6c86] focus:border-amber-300 focus:bg-[#3d3d52]'
                 }`}
               />
-              {subnetErrors.gateway && <p className="text-xs text-red-300 mt-1.5 font-bold">&gt; {subnetErrors.gateway}</p>}
+              {subnetErrors.gateway && <p className="text-xs text-red-300 mt-2 font-black">&gt; {subnetErrors.gateway}</p>}
             </div>
 
-            {/* Solid White Buttons with High Contrast */}
-            <div className="flex justify-end gap-3 pt-5 border-t-2 border-[#525268]">
+            <div className="flex justify-end gap-4 pt-6 border-t-2 border-[#54546c]">
               <button 
                 type="button" 
                 onClick={() => { setIsSubnetModalOpen(false); setSubnetErrors({}); }}
-                className="px-6 py-2.5 text-xs font-mono font-extrabold text-zinc-950 bg-white hover:bg-zinc-200 border-2 border-white uppercase transition cursor-pointer shadow-md"
+                className="px-6 py-3 text-xs font-mono font-black text-zinc-950 bg-white hover:bg-zinc-200 border-2 border-white uppercase transition cursor-pointer shadow-md"
               >
                 [ABORT]
               </button>
               <button 
                 type="submit" 
                 disabled={!isSubnetFormValid}
-                className={`px-6 py-2.5 text-xs font-mono font-extrabold uppercase tracking-wider transition border-2 cursor-pointer shadow-md ${
+                className={`px-6 py-3 text-xs font-mono font-black uppercase tracking-wider transition border-2 cursor-pointer shadow-md ${
                   isSubnetFormValid 
                     ? 'bg-white hover:bg-amber-300 text-zinc-950 border-white ring-2 ring-amber-400' 
                     : 'bg-zinc-300 text-zinc-700 border-zinc-400 cursor-not-allowed'
@@ -1118,17 +1143,17 @@ export default function App() {
         </DraggableModal>
       )}
 
-      {/* High-Contrast Moveable Host Modal */}
+      {/* Draggable Host Modal */}
       {isHostModalOpen && (
         <DraggableModal 
           title="// PROVISION_HOST" 
           onClose={() => { setIsHostModalOpen(false); setHostErrors({}); }}
-          widthClass="w-[560px]"
+          widthClass="w-[600px]"
         >
-          <form onSubmit={handleCreateHost} className="space-y-5 text-xs font-mono">
-            <div className="grid grid-cols-2 gap-4">
+          <form onSubmit={handleCreateHost} className="space-y-6 text-xs font-mono">
+            <div className="grid grid-cols-2 gap-5">
               <div>
-                <label className="text-white block mb-1.5 uppercase text-xs font-extrabold tracking-wider">
+                <label className="text-white block mb-2 uppercase text-xs font-black tracking-wider">
                   Hostname
                 </label>
                 <input 
@@ -1140,20 +1165,20 @@ export default function App() {
                     setNewHost(prev => ({ ...prev, hostname: val }));
                     validateHostField('hostname', val);
                   }}
-                  className={`w-full bg-[#3a3a4c] border-2 px-4 py-2.5 text-sm text-white font-bold placeholder-zinc-300 focus:outline-none transition shadow-inner ${
-                    hostErrors.hostname ? 'border-red-400 bg-red-950/40' : 'border-[#6c6c82] focus:border-amber-300 focus:bg-[#434358]'
+                  className={`w-full bg-[#353547] border-2 px-4 py-3 text-sm text-white font-bold placeholder-zinc-300 focus:outline-none transition shadow-inner ${
+                    hostErrors.hostname ? 'border-red-400 bg-red-950/40' : 'border-[#6c6c86] focus:border-amber-300 focus:bg-[#3d3d52]'
                   }`}
                 />
-                {hostErrors.hostname && <p className="text-xs text-red-300 mt-1.5 font-bold">&gt; {hostErrors.hostname}</p>}
+                {hostErrors.hostname && <p className="text-xs text-red-300 mt-2 font-black">&gt; {hostErrors.hostname}</p>}
               </div>
               <div>
-                <label className="text-white block mb-1.5 uppercase text-xs font-extrabold tracking-wider">
+                <label className="text-white block mb-2 uppercase text-xs font-black tracking-wider">
                   Device Class
                 </label>
                 <select 
                   value={newHost.device_type}
                   onChange={(e) => setNewHost({ ...newHost, device_type: e.target.value })}
-                  className="w-full bg-[#3a3a4c] border-2 border-[#6c6c82] hover:border-amber-300 px-4 py-2.5 text-sm text-white font-extrabold focus:outline-none uppercase cursor-pointer shadow-inner"
+                  className="w-full bg-[#353547] border-2 border-[#6c6c86] hover:border-amber-300 px-4 py-3 text-sm text-white font-black focus:outline-none uppercase cursor-pointer shadow-inner"
                 >
                   <option value="bare-metal" className="bg-[#292938] text-white py-1">BARE_METAL</option>
                   <option value="server" className="bg-[#292938] text-white py-1">SERVER</option>
@@ -1165,9 +1190,9 @@ export default function App() {
               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-2 gap-5">
               <div>
-                <label className="text-white block mb-1.5 uppercase text-xs font-extrabold tracking-wider">
+                <label className="text-white block mb-2 uppercase text-xs font-black tracking-wider">
                   IPv4 Address
                 </label>
                 <input 
@@ -1180,14 +1205,14 @@ export default function App() {
                     setNewHost(updated);
                     validateHostField('ip', val, updated);
                   }}
-                  className={`w-full bg-[#3a3a4c] border-2 px-4 py-2.5 text-sm text-white font-bold placeholder-zinc-300 focus:outline-none transition shadow-inner ${
-                    hostErrors.ip ? 'border-red-400 bg-red-950/40' : 'border-[#6c6c82] focus:border-amber-300 focus:bg-[#434358]'
+                  className={`w-full bg-[#353547] border-2 px-4 py-3 text-sm text-white font-bold placeholder-zinc-300 focus:outline-none transition shadow-inner ${
+                    hostErrors.ip ? 'border-red-400 bg-red-950/40' : 'border-[#6c6c86] focus:border-amber-300 focus:bg-[#3d3d52]'
                   }`}
                 />
-                {hostErrors.ip && <p className="text-xs text-red-300 mt-1.5 font-bold">&gt; {hostErrors.ip}</p>}
+                {hostErrors.ip && <p className="text-xs text-red-300 mt-2 font-black">&gt; {hostErrors.ip}</p>}
               </div>
               <div>
-                <label className="text-white block mb-1.5 uppercase text-xs font-extrabold tracking-wider">
+                <label className="text-white block mb-2 uppercase text-xs font-black tracking-wider">
                   MAC Address <span className="text-amber-300 font-bold">(OPTIONAL)</span>
                 </label>
                 <input 
@@ -1199,17 +1224,17 @@ export default function App() {
                     setNewHost(prev => ({ ...prev, mac: val }));
                     validateHostField('mac', val);
                   }}
-                  className={`w-full bg-[#3a3a4c] border-2 px-4 py-2.5 text-sm text-white font-bold placeholder-zinc-300 focus:outline-none transition shadow-inner ${
-                    hostErrors.mac ? 'border-red-400 bg-red-950/40' : 'border-[#6c6c82] focus:border-amber-300 focus:bg-[#434358]'
+                  className={`w-full bg-[#353547] border-2 px-4 py-3 text-sm text-white font-bold placeholder-zinc-300 focus:outline-none transition shadow-inner ${
+                    hostErrors.mac ? 'border-red-400 bg-red-950/40' : 'border-[#6c6c86] focus:border-amber-300 focus:bg-[#3d3d52]'
                   }`}
                 />
-                {hostErrors.mac && <p className="text-xs text-red-300 mt-1.5 font-bold">&gt; {hostErrors.mac}</p>}
+                {hostErrors.mac && <p className="text-xs text-red-300 mt-2 font-black">&gt; {hostErrors.mac}</p>}
               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-2 gap-5">
               <div>
-                <label className="text-white block mb-1.5 uppercase text-xs font-extrabold tracking-wider">
+                <label className="text-white block mb-2 uppercase text-xs font-black tracking-wider">
                   Assigned Subnet
                 </label>
                 <select 
@@ -1220,8 +1245,8 @@ export default function App() {
                     setNewHost(updated);
                     validateHostField('subnet_id', val, updated);
                   }}
-                  className={`w-full bg-[#3a3a4c] border-2 px-4 py-2.5 text-sm text-white font-extrabold focus:outline-none cursor-pointer shadow-inner ${
-                    hostErrors.subnet_id ? 'border-red-400 bg-red-950/40' : 'border-[#6c6c82] hover:border-amber-300'
+                  className={`w-full bg-[#353547] border-2 px-4 py-3 text-sm text-white font-black focus:outline-none cursor-pointer shadow-inner ${
+                    hostErrors.subnet_id ? 'border-red-400 bg-red-950/40' : 'border-[#6c6c86] hover:border-amber-300'
                   }`}
                 >
                   <option value="" className="bg-[#292938] text-white py-1">SELECT_SUBNET...</option>
@@ -1229,16 +1254,16 @@ export default function App() {
                     <option key={s.id} value={s.id} className="bg-[#292938] text-white py-1">{s.name} [{s.cidr}]</option>
                   ))}
                 </select>
-                {hostErrors.subnet_id && <p className="text-xs text-red-300 mt-1.5 font-bold">&gt; {hostErrors.subnet_id}</p>}
+                {hostErrors.subnet_id && <p className="text-xs text-red-300 mt-2 font-black">&gt; {hostErrors.subnet_id}</p>}
               </div>
               <div>
-                <label className="text-white block mb-1.5 uppercase text-xs font-extrabold tracking-wider">
+                <label className="text-white block mb-2 uppercase text-xs font-black tracking-wider">
                   Parent Host
                 </label>
                 <select 
                   value={newHost.parent_id}
                   onChange={(e) => setNewHost({ ...newHost, parent_id: e.target.value })}
-                  className="w-full bg-[#3a3a4c] border-2 border-[#6c6c82] hover:border-amber-300 px-4 py-2.5 text-sm text-white font-extrabold focus:outline-none uppercase cursor-pointer shadow-inner"
+                  className="w-full bg-[#353547] border-2 border-[#6c6c86] hover:border-amber-300 px-4 py-3 text-sm text-white font-black focus:outline-none uppercase cursor-pointer shadow-inner"
                 >
                   <option value="" className="bg-[#292938] text-white py-1">NONE (STANDALONE)</option>
                   {hosts.map(h => (
@@ -1249,7 +1274,7 @@ export default function App() {
             </div>
 
             <div>
-              <label className="text-white block mb-1.5 uppercase text-xs font-extrabold tracking-wider">
+              <label className="text-white block mb-2 uppercase text-xs font-black tracking-wider">
                 Operating System
               </label>
               <input 
@@ -1257,23 +1282,22 @@ export default function App() {
                 placeholder="Ubuntu 24.04 LTS"
                 value={newHost.os}
                 onChange={(e) => setNewHost({ ...newHost, os: e.target.value })}
-                className="w-full bg-[#3a3a4c] border-2 border-[#6c6c82] px-4 py-2.5 text-sm text-white font-bold placeholder-zinc-300 focus:outline-none focus:border-amber-300 focus:bg-[#434358] shadow-inner"
+                className="w-full bg-[#353547] border-2 border-[#6c6c86] px-4 py-3 text-sm text-white font-bold placeholder-zinc-300 focus:outline-none focus:border-amber-300 focus:bg-[#3d3d52] shadow-inner"
               />
             </div>
 
-            {/* Solid White Buttons with High Contrast */}
-            <div className="flex justify-end gap-3 pt-5 border-t-2 border-[#525268]">
+            <div className="flex justify-end gap-4 pt-6 border-t-2 border-[#54546c]">
               <button 
                 type="button" 
                 onClick={() => { setIsHostModalOpen(false); setHostErrors({}); }}
-                className="px-6 py-2.5 text-xs font-mono font-extrabold text-zinc-950 bg-white hover:bg-zinc-200 border-2 border-white uppercase transition cursor-pointer shadow-md"
+                className="px-6 py-3 text-xs font-mono font-black text-zinc-950 bg-white hover:bg-zinc-200 border-2 border-white uppercase transition cursor-pointer shadow-md"
               >
                 [ABORT]
               </button>
               <button 
                 type="submit" 
                 disabled={!isHostFormValid}
-                className={`px-6 py-2.5 text-xs font-mono font-extrabold uppercase tracking-wider transition border-2 cursor-pointer shadow-md ${
+                className={`px-6 py-3 text-xs font-mono font-black uppercase tracking-wider transition border-2 cursor-pointer shadow-md ${
                   isHostFormValid 
                     ? 'bg-white hover:bg-amber-300 text-zinc-950 border-white ring-2 ring-amber-400' 
                     : 'bg-zinc-300 text-zinc-700 border-zinc-400 cursor-not-allowed'

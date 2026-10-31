@@ -5,5 +5,12 @@ services:
     restart: unless-stopped
     ports:
       - "8085:8000"
+    user: "0:983"
+    dns:
+      - 1.1.1.1
+      - 8.8.8.8
     volumes:
       - ./data:/data
+      - ./backend:/app/backend
+      - ./frontend/dist:/app/static:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
