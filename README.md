@@ -3,6 +3,7 @@
 A lightweight, self-hosted network documentation tool.
 
 - **Host Inventory:** Track bare-metal servers, VMs, containers, and network switches.
+- **Automated Docker Sync:** Connects directly to `/var/run/docker.sock` to detect local containers, inspect IP/MAC assignments, and import them automatically.
 - **Network Map:** Visualize hierarchical relationships between parent hosts and child instances.
 - **Runbooks:** Document device credentials, open ports, and procedures inline.
 - **Portability:** Fast JSON-based database export and disaster recovery restore.
@@ -19,8 +20,10 @@ services:
     restart: unless-stopped
     ports:
       - "8085:8000"
+    user: "0:GID"  # Replace GID with your host GID.
     volumes:
       - ./data:/data
+      - /var/run/docker.sock:/var/run/docker.sock:ro
 
 ```
 Run:
