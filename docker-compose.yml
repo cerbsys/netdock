@@ -1,0 +1,28 @@
+services:
+  backend:
+    build: ./backend
+    container_name: net-doc-api
+    restart: unless-stopped
+    volumes:
+      - /opt/stacks/net-inventory/data:/data
+    networks:
+      - netdoc-internal
+
+  frontend:
+    image: nginx:alpine
+    container_name: net-doc-ui
+    restart: unless-stopped
+    volumes:
+      - /opt/stacks/net-inventory/frontend/dist:/usr/share/nginx/html:ro
+      - /opt/stacks/net-inventory/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    ports:
+      - "8085:80"
+    networks:
+      - netdoc-internal
+      - npm_default
+
+networks:
+  netdoc-internal:
+    driver: bridge
+  npm_default:
+    external: true
