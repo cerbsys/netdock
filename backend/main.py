@@ -162,6 +162,11 @@ def sync_docker_containers(session: Session = Depends(get_session)):
         existing_subnets = session.exec(select(Subnet)).all()
         default_subnet_id = existing_subnets[0].id if existing_subnets else ""
 
+        # Find the parent host matching 'cerberus' (case-insensitive)
+        all_hosts = session.exec(select(Host)).all()
+        cerb_parent = next((h for h in all_hosts if h.hostname.lower() == "cerberus"), None)
+        parent_target_id = cerb_parent.id if cerb_parent else None
+
         for c in containers:
             raw_names = c.get("Names", [])
             name = raw_names[0].lstrip("/") if raw_names else c.get("Id", "")[:12]
@@ -202,13 +207,14 @@ def sync_docker_containers(session: Session = Depends(get_session)):
                     device_type="container",
                     status=status,
                     subnet_id=matched_subnet_id,
-                    parent_id="cerberus",
+                    parent_id=parent_target_id,
                     notes=f"Auto-synced from Docker daemon. Epoch: {created_epoch}"
                 )
                 session.add(new_entry)
                 synced_hosts.append(name)
             else:
                 existing.status = status
+                existing.parent_id = parent_target_id  # Update retroactive parent linking
                 if ip_address != "127.0.0.1":
                     existing.ip = ip_address
                 if mac_address:
@@ -223,6 +229,7 @@ def sync_docker_containers(session: Session = Depends(get_session)):
 
     return {
         "status": "success",
+        "parent_linked_to": parent_target_id,
         "total_discovered": len(containers),
         "synced_count": len(synced_hosts),
         "containers": synced_hosts
