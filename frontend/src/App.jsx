@@ -1,9 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
-import { 
-  Server, Network, Search, Plus, 
-  Trash2, Edit3, Save, X, RefreshCw, Download, Upload, AlertCircle,
-  Activity, Layers, GripHorizontal
-} from 'lucide-react';
+import { Activity, AlertCircle, ChevronLeft, ChevronRight, Download, Edit3, GripHorizontal, Layers, Network, Plus, RefreshCw, Save, Search, Server, Trash2, Upload, X } from 'lucide-react';
 
 const API_BASE = '/api/v1';
 
@@ -187,6 +183,18 @@ export default function App() {
   
   const [search, setSearch] = useState('');
   const [selectedHostId, setSelectedHostId] = useState(null);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
+    return localStorage.getItem("netdock_sidebar_collapsed") === "true";
+  });
+
+  const toggleSidebar = () => {
+    setSidebarCollapsed(prev => {
+      const next = !prev;
+      localStorage.setItem("netdock_sidebar_collapsed", String(next));
+      return next;
+    });
+  };
+
   const [activeTab, setActiveTab] = useState('roster');
 
   const [isEditingNotes, setIsEditingNotes] = useState(false);
@@ -670,27 +678,41 @@ export default function App() {
       <div className="flex-1 flex overflow-hidden border-2 border-[#54546c] shadow-[0_0_25px_rgba(0,0,0,0.8)] bg-[#14141b]">
 
         {/* Sidebar Frame */}
-        <aside className="w-72 border-r-2 border-[#54546c] bg-[#1a1a24] flex flex-col justify-between">
+        <aside
+          style={{
+            width: sidebarCollapsed ? "5rem" : "18rem",
+            minWidth: sidebarCollapsed ? "5rem" : "18rem",
+            maxWidth: sidebarCollapsed ? "5rem" : "18rem"
+          }}
+          className="relative transition-all duration-200 border-r-2 border-[#54546c] bg-[#1a1a24] flex flex-col justify-between shrink-0 z-20 overflow-hidden select-none"
+        >
           <div>
             {/* Header Brand */}
-            <div className="h-20 border-b-2 border-[#54546c] px-6 flex items-center justify-between bg-[#232332]">
-              <div className="flex items-center gap-3.5">
-                <div className="p-2 border-2 border-amber-400 bg-[#2f2f42] text-amber-300 shadow">
+            <div className={`h-20 border-b-2 border-[#54546c] ${sidebarCollapsed ? "px-2 justify-center" : "px-6 justify-between"} flex items-center bg-[#232332]`}>
+              <div className="flex items-center gap-3">
+                <div className="p-2 border-2 border-amber-400 bg-[#2f2f42] text-amber-300 shadow shrink-0">
                   <Network className="w-5 h-5" />
                 </div>
-                <div>
-                  <span className="font-mono font-black text-sm tracking-wider text-amber-400 uppercase block">NetDock</span>
-                  <span className="text-[10px] text-zinc-300 font-mono tracking-wider block font-bold">TERMINAL // V1.0</span>
-                </div>
+                {!sidebarCollapsed && (
+                  <div>
+                    <span className="font-mono font-black text-sm tracking-wider text-amber-400 uppercase block">NetDock</span>
+                    <span className="text-[10px] text-zinc-300 font-mono tracking-wider block font-bold">TERMINAL // V1.0</span>
+                  </div>
+                )}
               </div>
-              <span className="text-[10px] font-mono border-2 border-amber-400 bg-amber-400/20 text-amber-300 px-2.5 py-1 uppercase tracking-widest font-black shadow-sm">
-                SYS_OK
-              </span>
+              <button
+                type="button"
+                onClick={toggleSidebar}
+                className="p-1.5 border border-[#54546c] bg-[#29293a] text-zinc-300 hover:text-amber-400 hover:border-amber-400 transition cursor-pointer shrink-0"
+                title={sidebarCollapsed ? "Expand Sidebar" : "Collapse Sidebar"}
+              >
+                {sidebarCollapsed ? <ChevronRight className="w-4 h-4 text-amber-400" /> : <ChevronLeft className="w-4 h-4 text-amber-400" />}
+              </button>
             </div>
 
             {/* Navigation Links */}
             <div className="px-6 pt-8 pb-3 text-xs font-mono text-amber-300 uppercase tracking-widest font-black">
-              // TELEMETRY
+              {!sidebarCollapsed ? "// TELEMETRY" : "//"}
             </div>
             <nav className="px-4 space-y-3">
               <button 
@@ -701,7 +723,7 @@ export default function App() {
                     : 'bg-[#333346] text-white hover:bg-[#43435c] hover:border-amber-400 border-[#60607a] font-extrabold'
                 }`}
               >
-                <Server className={`w-4 h-4 ${activeTab === 'roster' ? 'text-black' : 'text-amber-300'}`} /> 01_HOST_ROSTER
+                <Server className={`w-4 h-4 ${activeTab === 'roster' ? 'text-black' : 'text-amber-300'}`} /> {!sidebarCollapsed && <span>01_HOST_ROSTER</span>}
               </button>
               <button 
                 onClick={() => setActiveTab('subnets')}
@@ -711,7 +733,7 @@ export default function App() {
                     : 'bg-[#333346] text-white hover:bg-[#43435c] hover:border-amber-400 border-[#60607a] font-extrabold'
                 }`}
               >
-                <Layers className={`w-4 h-4 ${activeTab === 'subnets' ? 'text-black' : 'text-amber-300'}`} /> 02_SUBNETS
+                <Layers className={`w-4 h-4 ${activeTab === 'subnets' ? 'text-black' : 'text-amber-300'}`} /> {!sidebarCollapsed && <span>02_SUBNETS</span>}
               </button>
               <button 
                 onClick={() => setActiveTab('topology')}
@@ -721,34 +743,34 @@ export default function App() {
                     : 'bg-[#333346] text-white hover:bg-[#43435c] hover:border-amber-400 border-[#60607a] font-extrabold'
                 }`}
               >
-                <Activity className={`w-4 h-4 ${activeTab === 'topology' ? 'text-black' : 'text-amber-300'}`} /> 03_MAP
+                <Activity className={`w-4 h-4 ${activeTab === 'topology' ? 'text-black' : 'text-amber-300'}`} /> {!sidebarCollapsed && <span>03_MAP</span>}
               </button>
             </nav>
 
             {/* Backup & Daemon Controls */}
             <div className="px-6 pt-10 pb-3 text-xs font-mono text-amber-300 uppercase tracking-widest font-black">
-              // DATA_OPS
+              {!sidebarCollapsed ? "// DATA_OPS" : "//"}
             </div>
             <div className="px-4 space-y-3">
               <button 
                 onClick={handleSyncDocker}
                 disabled={isSyncingDocker}
-                className="w-full flex items-center gap-3.5 px-4 py-3 text-xs font-mono text-left font-black text-zinc-950 bg-amber-400 hover:bg-amber-300 border-2 border-white shadow-md transition cursor-pointer"
+                className={`w-full flex items-center ${sidebarCollapsed ? "justify-center px-2" : "gap-3.5 px-4"} py-3 text-xs font-mono text-left font-black text-zinc-950 bg-amber-400 hover:bg-amber-300 border-2 border-white shadow-md transition cursor-pointer`}
               >
                 <RefreshCw className={`w-4 h-4 ${isSyncingDocker ? 'animate-spin' : ''}`} /> 
-                {isSyncingDocker ? 'SYNCING_DAEMON...' : 'SYNC_DOCKER'}
+                {!sidebarCollapsed && (isSyncingDocker ? 'SYNCING_DAEMON...' : 'SYNC_DOCKER')}
               </button>
               <button 
                 onClick={handleExportBackup}
-                className="w-full flex items-center gap-3.5 px-4 py-3 text-xs font-mono text-left font-extrabold text-white bg-[#333346] hover:bg-[#43435c] hover:text-amber-300 border-2 border-[#60607a] hover:border-amber-400 shadow-md transition cursor-pointer"
+                className={`w-full flex items-center ${sidebarCollapsed ? "justify-center px-2" : "gap-3.5 px-4"} py-3 text-xs font-mono text-left font-extrabold text-white bg-[#333346] hover:bg-[#43435c] hover:text-amber-300 border-2 border-[#60607a] hover:border-amber-400 shadow-md transition cursor-pointer`}
               >
-                <Download className="w-4 h-4 text-amber-300" /> DUMP_BACKUP
+                <Download className="w-4 h-4 text-amber-300"  shrink-0 /> {!sidebarCollapsed && <span>DUMP_BACKUP</span>}
               </button>
               <button 
                 onClick={() => fileInputRef.current?.click()}
-                className="w-full flex items-center gap-3.5 px-4 py-3 text-xs font-mono text-left font-extrabold text-white bg-[#333346] hover:bg-[#43435c] hover:text-amber-300 border-2 border-[#60607a] hover:border-amber-400 shadow-md transition cursor-pointer"
+                className={`w-full flex items-center ${sidebarCollapsed ? "justify-center px-2" : "gap-3.5 px-4"} py-3 text-xs font-mono text-left font-extrabold text-white bg-[#333346] hover:bg-[#43435c] hover:text-amber-300 border-2 border-[#60607a] hover:border-amber-400 shadow-md transition cursor-pointer`}
               >
-                <Upload className="w-4 h-4 text-amber-300" /> RESTORE_BACKUP
+                <Upload className="w-4 h-4 text-amber-300"  shrink-0 /> {!sidebarCollapsed && <span>RESTORE_BACKUP</span>}
               </button>
             </div>
           </div>
@@ -768,7 +790,7 @@ export default function App() {
                   <line x1="12" y1="2" x2="12" y2="12" />
                 </svg>
               </button>
-              <span className="text-xs font-black tracking-wider text-zinc-300 whitespace-nowrap">ENGINE: SQLITE_WAL</span>
+              <span className="text-xs font-black tracking-wider text-zinc-300 whitespace-nowrap">{!sidebarCollapsed && "ENGINE: SQLITE_WAL"}</span>
             </div>
             <button
               type="button"
@@ -861,7 +883,21 @@ export default function App() {
                   )}
 
                   <div className="space-y-4">
-                    {filteredHosts.map(host => (
+              {/* Tiered Hardware and Virtual Workloads */}
+              <div className="space-y-6">
+                {/* 01 Physical Hardware */}
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between border-b border-[#3e3e54] pb-2">
+                    <span className="font-mono text-xs font-black text-amber-300 uppercase tracking-widest">
+                      // [01] PHYSICAL_HARDWARE ({filteredHosts.filter(host => ["bare-metal", "server", "switch", "sbc"].includes((host.device_type || "").toLowerCase())).length})
+                    </span>
+                  </div>
+                  {filteredHosts.filter(host => ["bare-metal", "server", "switch", "sbc"].includes((host.device_type || "").toLowerCase())).length === 0 ? (
+                    <div className="text-xs font-mono text-zinc-400 p-3 border border-dashed border-[#44445c] bg-[#181822] text-center">
+                      NO PHYSICAL HOSTS RECORDED
+                    </div>
+                  ) : (
+                    filteredHosts.filter(host => ["bare-metal", "server", "switch", "sbc"].includes((host.device_type || "").toLowerCase())).map(host => (
                       <div
                         key={host.id}
                         onClick={() => setSelectedHostId(host.id)}
@@ -887,7 +923,54 @@ export default function App() {
                           <span className="text-zinc-300 font-bold">{host.mac || 'NO_MAC_LOGGED'}</span>
                         </div>
                       </div>
-                    ))}
+
+                    ))
+                  )}
+                </div>
+
+                {/* 02 Virtual & Container Workloads */}
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between border-b border-[#3e3e54] pb-2">
+                    <span className="font-mono text-xs font-black text-sky-400 uppercase tracking-widest">
+                      // [02] VIRTUAL_WORKLOADS & CONTAINERS ({filteredHosts.filter(host => !["bare-metal", "server", "switch", "sbc"].includes((host.device_type || "").toLowerCase())).length})
+                    </span>
+                  </div>
+                  {filteredHosts.filter(host => !["bare-metal", "server", "switch", "sbc"].includes((host.device_type || "").toLowerCase())).length === 0 ? (
+                    <div className="text-xs font-mono text-zinc-400 p-3 border border-dashed border-[#44445c] bg-[#181822] text-center">
+                      NO VIRTUAL WORKLOADS RECORDED
+                    </div>
+                  ) : (
+                    filteredHosts.filter(host => !["bare-metal", "server", "switch", "sbc"].includes((host.device_type || "").toLowerCase())).map(host => (
+                      <div
+                        key={host.id}
+                        onClick={() => setSelectedHostId(host.id)}
+                        className={`p-5 border-2 transition cursor-pointer select-none ${
+                          host.id === activeHost?.id 
+                            ? 'border-amber-400 bg-[#292938] shadow-xl ring-2 ring-amber-400/50' 
+                            : 'border-[#4e4e66] bg-[#1d1d28] hover:border-amber-400 hover:bg-[#252534]'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between">
+                          <div className="font-mono text-xs text-zinc-100 flex items-center gap-3">
+                            <span className={`w-3 h-3 ${host.status === 'active' ? 'bg-amber-400 shadow-[0_0_10px_rgba(251,191,36,0.9)]' : 'bg-red-500'}`} />
+                            <span className="font-black tracking-wide text-base">{host.hostname}</span>
+                          </div>
+                          <span className="text-sm font-mono text-amber-300 font-black px-3 py-1 bg-[#121218] border-2 border-[#54546c]">
+                            {host.ip}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-5 mt-4 text-xs font-mono">
+                          <span className="border-2 border-[#62627e] bg-[#2d2d3e] px-2.5 py-0.5 text-zinc-100 uppercase font-black">
+                            {host.device_type}
+                          </span>
+                          <span className="text-zinc-300 font-bold">{host.mac || 'NO_MAC_LOGGED'}</span>
+                        </div>
+                      </div>
+
+                    ))
+                  )}
+                </div>
+              </div>
                   </div>
                 </div>
 
