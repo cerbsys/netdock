@@ -167,6 +167,17 @@ function DraggableModal({ title, onClose, widthClass = 'w-[580px]', children }) 
 }
 
 export default function App() {
+  const handleLogout = async (e) => {
+    if (e) e.preventDefault();
+    try {
+      await fetch("/auth/logout", {
+        method: "POST",
+        headers: { "Accept": "application/json" }
+      });
+    } catch (_) {}
+    window.location.href = "/";
+  };
+
   const [hosts, setHosts] = useState([]);
   const [subnets, setSubnets] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -739,10 +750,33 @@ export default function App() {
           </div>
 
           {/* Sidebar Footer */}
-          <div className="p-5 border-t-2 border-[#54546c] text-xs font-mono text-zinc-200 flex justify-between items-center bg-[#232332]">
-            <span className="font-extrabold text-zinc-300 tracking-wider">ENGINE: SQLITE_WAL</span>
-            <button onClick={fetchData} title="Sync database" className="p-2 hover:text-amber-300 hover:bg-[#38384e] border-2 border-[#60607a] transition cursor-pointer">
-              <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+          <div className="shrink-0 border-t-2 border-[#54546c] bg-[#1a1a24] px-3 py-3 flex items-center justify-between font-mono select-none" style={{ minHeight: "52px" }}>
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                onClick={handleLogout}
+                title="Terminate Session / Logout"
+                className="flex items-center justify-center bg-[#29293a] hover:bg-amber-400 border-2 border-[#54546c] hover:border-amber-300 text-zinc-300 hover:text-black rounded shadow transition-all cursor-pointer"
+                style={{ width: "34px", height: "34px", minWidth: "34px", minHeight: "34px", flexShrink: 0 }}
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ width: "18px", height: "18px", minWidth: "18px", minHeight: "18px" }}>
+                  <path d="M18.36 6.64a9 9 0 1 1-12.73 0" />
+                  <line x1="12" y1="2" x2="12" y2="12" />
+                </svg>
+              </button>
+              <span className="text-xs font-black tracking-wider text-zinc-300 whitespace-nowrap">ENGINE: SQLITE_WAL</span>
+            </div>
+            <button
+              type="button"
+              onClick={() => window.location.reload()}
+              title="Refresh Interface"
+              className="flex items-center justify-center bg-[#29293a] hover:bg-amber-400 border-2 border-[#54546c] hover:border-amber-300 text-zinc-300 hover:text-black rounded shadow transition-all cursor-pointer"
+              style={{ width: "34px", height: "34px", minWidth: "34px", minHeight: "34px", flexShrink: 0 }}
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ width: "18px", height: "18px", minWidth: "18px", minHeight: "18px" }}>
+                <polyline points="23 4 23 10 17 10" />
+                <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
+              </svg>
             </button>
           </div>
         </aside>

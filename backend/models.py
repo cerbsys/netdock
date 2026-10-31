@@ -141,3 +141,11 @@ class Service(SQLModel, table=True):
         if not (1 <= v <= 65535):
             raise ValueError("Port must be between 1 and 65535.")
         return v
+
+
+class Operator(SQLModel, table=True):
+    id: Optional[str] = Field(default="sys_op", primary_key=True)
+    username: str = Field(index=True, unique=True)
+    salt: str
+    password_hash: str
+    created_at: int
