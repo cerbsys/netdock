@@ -1,6 +1,6 @@
 # NetDock
 
-A lightweight, self-hosted network documentation and IPAM rack manager.
+A lightweight, self-hosted network documentation tool.
 
 ## Quick Start (Docker Compose)
 
