@@ -16,6 +16,8 @@ services:
       - "8085:8000"
     volumes:
       - ./data:/data
+
+```
 Run:
 docker compose up -d
 Access the interface at http://localhost:8085.
