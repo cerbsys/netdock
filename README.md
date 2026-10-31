@@ -9,7 +9,7 @@ Save the following `docker-compose.yml`:
 ```yaml
 services:
   netdock:
-    image: ghcr.io/<YOUR-GITHUB-USERNAME>/netdock:latest
+    image: ghcr.io/cerbsys/netdock:latest
     container_name: netdock
     restart: unless-stopped
     ports:
