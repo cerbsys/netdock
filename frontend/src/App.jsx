@@ -711,13 +711,13 @@ export default function App() {
             </div>
 
             {/* Navigation Links */}
-            <div className="px-6 pt-8 pb-3 text-xs font-mono text-amber-300 uppercase tracking-widest font-black">
+            <div className={`pt-6 pb-2 text-xs font-mono text-amber-300 uppercase tracking-widest font-black ${sidebarCollapsed ? "text-center text-[10px] px-0" : "px-6"}`}>
               {!sidebarCollapsed ? "// TELEMETRY" : "//"}
             </div>
-            <nav className="px-4 space-y-3">
+            <nav className={`w-full flex flex-col space-y-2 ${sidebarCollapsed ? "px-0" : "px-4"}`}>
               <button 
                 onClick={() => setActiveTab('roster')}
-                className={`w-full flex items-center gap-3.5 px-4 py-3 text-xs font-mono uppercase tracking-wider text-left transition shadow-md cursor-pointer border-2 ${
+                className={`w-full flex items-center ${sidebarCollapsed ? "justify-center px-0 h-12" : "gap-3.5 px-4 py-3"} text-xs font-mono uppercase tracking-wider text-left transition shadow-md cursor-pointer border-2 ${
                   activeTab === 'roster' 
                     ? 'bg-amber-400 text-black font-black border-white ring-2 ring-amber-300' 
                     : 'bg-[#333346] text-white hover:bg-[#43435c] hover:border-amber-400 border-[#60607a] font-extrabold'
@@ -727,7 +727,7 @@ export default function App() {
               </button>
               <button 
                 onClick={() => setActiveTab('subnets')}
-                className={`w-full flex items-center gap-3.5 px-4 py-3 text-xs font-mono uppercase tracking-wider text-left transition shadow-md cursor-pointer border-2 ${
+                className={`w-full flex items-center ${sidebarCollapsed ? "justify-center px-0 h-12" : "gap-3.5 px-4 py-3"} text-xs font-mono uppercase tracking-wider text-left transition shadow-md cursor-pointer border-2 ${
                   activeTab === 'subnets' 
                     ? 'bg-amber-400 text-black font-black border-white ring-2 ring-amber-300' 
                     : 'bg-[#333346] text-white hover:bg-[#43435c] hover:border-amber-400 border-[#60607a] font-extrabold'
@@ -737,7 +737,7 @@ export default function App() {
               </button>
               <button 
                 onClick={() => setActiveTab('topology')}
-                className={`w-full flex items-center gap-3.5 px-4 py-3 text-xs font-mono uppercase tracking-wider text-left transition shadow-md cursor-pointer border-2 ${
+                className={`w-full flex items-center ${sidebarCollapsed ? "justify-center px-0 h-12" : "gap-3.5 px-4 py-3"} text-xs font-mono uppercase tracking-wider text-left transition shadow-md cursor-pointer border-2 ${
                   activeTab === 'topology' 
                     ? 'bg-amber-400 text-black font-black border-white ring-2 ring-amber-300' 
                     : 'bg-[#333346] text-white hover:bg-[#43435c] hover:border-amber-400 border-[#60607a] font-extrabold'
@@ -748,27 +748,27 @@ export default function App() {
             </nav>
 
             {/* Backup & Daemon Controls */}
-            <div className="px-6 pt-10 pb-3 text-xs font-mono text-amber-300 uppercase tracking-widest font-black">
+            <div className={`pt-6 pb-2 text-xs font-mono text-amber-300 uppercase tracking-widest font-black ${sidebarCollapsed ? "text-center text-[10px] px-0" : "px-6"}`}>
               {!sidebarCollapsed ? "// DATA_OPS" : "//"}
             </div>
-            <div className="px-4 space-y-3">
+            <div className={`w-full flex flex-col space-y-2 ${sidebarCollapsed ? "px-0" : "px-4"}`}>
               <button 
                 onClick={handleSyncDocker}
                 disabled={isSyncingDocker}
-                className={`w-full flex items-center ${sidebarCollapsed ? "justify-center px-2" : "gap-3.5 px-4"} py-3 text-xs font-mono text-left font-black text-zinc-950 bg-amber-400 hover:bg-amber-300 border-2 border-white shadow-md transition cursor-pointer`}
+                className={`w-full flex items-center ${sidebarCollapsed ? "justify-center px-0 h-12" : "gap-3.5 px-4 py-3"} text-xs font-mono text-left font-black text-zinc-950 bg-amber-400 hover:bg-amber-300 border-2 border-white shadow-md transition cursor-pointer`}
               >
                 <RefreshCw className={`w-4 h-4 ${isSyncingDocker ? 'animate-spin' : ''}`} /> 
                 {!sidebarCollapsed && (isSyncingDocker ? 'SYNCING_DAEMON...' : 'SYNC_DOCKER')}
               </button>
               <button 
                 onClick={handleExportBackup}
-                className={`w-full flex items-center ${sidebarCollapsed ? "justify-center px-2" : "gap-3.5 px-4"} py-3 text-xs font-mono text-left font-extrabold text-white bg-[#333346] hover:bg-[#43435c] hover:text-amber-300 border-2 border-[#60607a] hover:border-amber-400 shadow-md transition cursor-pointer`}
+                className={`w-full flex items-center ${sidebarCollapsed ? "justify-center px-0 h-12" : "gap-3.5 px-4 py-3"} text-xs font-mono text-left font-extrabold text-white bg-[#333346] hover:bg-[#43435c] hover:text-amber-300 border-2 border-[#60607a] hover:border-amber-400 shadow-md transition cursor-pointer`}
               >
                 <Download className="w-4 h-4 text-amber-300"  shrink-0 /> {!sidebarCollapsed && <span>DUMP_BACKUP</span>}
               </button>
               <button 
                 onClick={() => fileInputRef.current?.click()}
-                className={`w-full flex items-center ${sidebarCollapsed ? "justify-center px-2" : "gap-3.5 px-4"} py-3 text-xs font-mono text-left font-extrabold text-white bg-[#333346] hover:bg-[#43435c] hover:text-amber-300 border-2 border-[#60607a] hover:border-amber-400 shadow-md transition cursor-pointer`}
+                className={`w-full flex items-center ${sidebarCollapsed ? "justify-center px-0 h-12" : "gap-3.5 px-4 py-3"} text-xs font-mono text-left font-extrabold text-white bg-[#333346] hover:bg-[#43435c] hover:text-amber-300 border-2 border-[#60607a] hover:border-amber-400 shadow-md transition cursor-pointer`}
               >
                 <Upload className="w-4 h-4 text-amber-300"  shrink-0 /> {!sidebarCollapsed && <span>RESTORE_BACKUP</span>}
               </button>
@@ -776,7 +776,7 @@ export default function App() {
           </div>
 
           {/* Sidebar Footer */}
-          <div className="shrink-0 border-t-2 border-[#54546c] bg-[#1a1a24] px-3 py-3 flex items-center justify-between font-mono select-none" style={{ minHeight: "52px" }}>
+          <div className={`shrink-0 border-t-2 border-[#54546c] bg-[#1a1a24] px-3 py-3 flex items-center ${sidebarCollapsed ? "justify-center" : "justify-between"} font-mono select-none`} style={{ minHeight: "52px" }}>
             <div className="flex items-center gap-3">
               <button
                 type="button"
