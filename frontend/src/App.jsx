@@ -167,15 +167,17 @@ function DraggableModal({ title, onClose, widthClass = 'w-[580px]', children }) 
 }
 
 export default function App() {
-  const handleLogout = async (e) => {
-    if (e) e.preventDefault();
-    try {
-      await fetch("/auth/logout", {
-        method: "POST",
-        headers: { "Accept": "application/json" }
+  const handleLogout = (e) => {
+    if (e && e.preventDefault) e.preventDefault();
+    window.__netdock_logging_out = true;
+    fetch("/auth/logout", {
+      method: "POST",
+      headers: { "Accept": "application/json" }
+    })
+      .catch(() => {})
+      .finally(() => {
+        window.location.href = "/";
       });
-    } catch (_) {}
-    window.location.href = "/";
   };
 
   const [hosts, setHosts] = useState([]);
@@ -244,7 +246,9 @@ export default function App() {
         setEditedNotes(hostsData[0].notes || '');
       }
     } catch (err) {
-      setError(err.message);
+      if (err.message !== "401" && !window.__netdock_logging_out) {
+        setError(err.message);
+      }
     } finally {
       setLoading(false);
     }

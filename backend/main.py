@@ -475,13 +475,7 @@ def handle_logout(request: Request):
     token = request.cookies.get("netdock_session")
     if token and token in VALID_SESSIONS:
         VALID_SESSIONS.discard(token)
-    
-    # If called via fetch/XHR, reply with JSON to prevent unload race condition
-    if request.headers.get("accept", "").find("application/json") != -1 or request.headers.get("x-requested-with") == "XMLHttpRequest":
-        response = Response(content='{"status":"logged_out"}', media_type="application/json")
-    else:
-        response = RedirectResponse(url="/", status_code=303)
-        
+    response = Response(content='{"status":"logged_out"}', media_type="application/json")
     response.delete_cookie(key="netdock_session", path="/")
     return response
 
