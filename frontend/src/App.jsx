@@ -172,6 +172,8 @@ export default function App() {
     })
       .catch(() => {})
       .finally(() => {
+        localStorage.clear();
+        sessionStorage.clear();
         window.location.href = "/";
       });
   };
@@ -778,7 +780,7 @@ export default function App() {
           {/* Sidebar Footer */}
           <div className={`shrink-0 border-t-2 border-[#54546c] bg-[#1a1a24] px-3 py-3 flex items-center ${sidebarCollapsed ? "justify-center" : "justify-between"} font-mono select-none`} style={{ minHeight: "52px" }}>
             <div className="flex items-center gap-3">
-              <button
+              <button type="button"
                 type="button"
                 onClick={handleLogout}
                 title="Terminate Session / Logout"
