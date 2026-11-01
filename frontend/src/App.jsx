@@ -673,7 +673,7 @@ export default function App() {
         ref={fileInputRef} 
         onChange={handleImportFile} 
         accept=".json" 
-        className="hidden" 
+        className="placeholder-zinc-500 text-zinc-100 hidden" 
       />
 
       {/* Main Modular Chassis Frame */}
@@ -830,7 +830,7 @@ export default function App() {
             <div className="flex items-center gap-5">
               <div className="relative flex items-center">
                 <Search className="w-4 h-4 absolute left-4 text-amber-400 pointer-events-none" />
-                <input 
+                <input style={{ color: "#ffffff" }} 
                   type="text" 
                   placeholder="SEARCH HOST / IP / MAC..."
                   value={search}
@@ -1163,7 +1163,7 @@ export default function App() {
               <label className="text-white block mb-2 uppercase text-xs font-black tracking-wider">
                 Subnet Label
               </label>
-              <input 
+              <input style={{ color: "#ffffff" }} 
                 type="text" 
                 placeholder="e.g. Core Services" 
                 value={newSubnet.name}
@@ -1184,7 +1184,7 @@ export default function App() {
                 <label className="text-white block mb-2 uppercase text-xs font-black tracking-wider">
                   CIDR Range
                 </label>
-                <input 
+                <input style={{ color: "#ffffff" }} 
                   type="text" 
                   placeholder="192.168.1.0/24" 
                   value={newSubnet.cidr}
@@ -1204,7 +1204,7 @@ export default function App() {
                 <label className="text-white block mb-2 uppercase text-xs font-black tracking-wider">
                   VLAN Tag
                 </label>
-                <input 
+                <input style={{ color: "#ffffff" }} 
                   type="number" 
                   placeholder="10" 
                   value={newSubnet.vlan}
@@ -1225,7 +1225,7 @@ export default function App() {
               <label className="text-white block mb-2 uppercase text-xs font-black tracking-wider">
                 Default Gateway
               </label>
-              <input 
+              <input style={{ color: "#ffffff" }} 
                 type="text" 
                 placeholder="192.168.1.1" 
                 value={newSubnet.gateway}
@@ -1279,7 +1279,7 @@ export default function App() {
                 <label className="text-white block mb-2 uppercase text-xs font-black tracking-wider">
                   Hostname
                 </label>
-                <input 
+                <input style={{ color: "#ffffff" }} 
                   type="text" 
                   placeholder="cerberus"
                   value={newHost.hostname}
@@ -1298,7 +1298,7 @@ export default function App() {
                 <label className="text-white block mb-2 uppercase text-xs font-black tracking-wider">
                   Device Class
                 </label>
-                <select 
+                <select style={{ color: "#ffffff" }} 
                   value={newHost.device_type}
                   onChange={(e) => setNewHost({ ...newHost, device_type: e.target.value })}
                   className="w-full bg-[#353547] border-2 border-[#6c6c86] hover:border-amber-300 px-4 py-3 text-sm text-white font-black focus:outline-none uppercase cursor-pointer shadow-inner"
@@ -1318,7 +1318,7 @@ export default function App() {
                 <label className="text-white block mb-2 uppercase text-xs font-black tracking-wider">
                   IPv4 Address
                 </label>
-                <input 
+                <input style={{ color: "#ffffff" }} 
                   type="text" 
                   placeholder="192.168.1.5"
                   value={newHost.ip}
@@ -1338,7 +1338,7 @@ export default function App() {
                 <label className="text-white block mb-2 uppercase text-xs font-black tracking-wider">
                   MAC Address <span className="text-amber-300 font-bold">(OPTIONAL)</span>
                 </label>
-                <input 
+                <input style={{ color: "#ffffff" }} 
                   type="text" 
                   placeholder="bc:24:11:92:aa:01"
                   value={newHost.mac}
@@ -1360,7 +1360,7 @@ export default function App() {
                 <label className="text-white block mb-2 uppercase text-xs font-black tracking-wider">
                   Assigned Subnet
                 </label>
-                <select 
+                <select style={{ color: "#ffffff" }} 
                   value={newHost.subnet_id}
                   onChange={(e) => {
                     const val = e.target.value;
@@ -1383,7 +1383,7 @@ export default function App() {
                 <label className="text-white block mb-2 uppercase text-xs font-black tracking-wider">
                   Parent Host
                 </label>
-                <select 
+                <select style={{ color: "#ffffff" }} 
                   value={newHost.parent_id}
                   onChange={(e) => setNewHost({ ...newHost, parent_id: e.target.value })}
                   className="w-full bg-[#353547] border-2 border-[#6c6c86] hover:border-amber-300 px-4 py-3 text-sm text-white font-black focus:outline-none uppercase cursor-pointer shadow-inner"
@@ -1400,7 +1400,7 @@ export default function App() {
               <label className="text-white block mb-2 uppercase text-xs font-black tracking-wider">
                 Operating System
               </label>
-              <input 
+              <input style={{ color: "#ffffff" }} 
                 type="text" 
                 placeholder="Ubuntu 24.04 LTS"
                 value={newHost.os}
