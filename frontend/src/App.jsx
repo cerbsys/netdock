@@ -1,5 +1,29 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
-import { Activity, AlertCircle, ChevronLeft, ChevronRight, Download, Edit3, GripHorizontal, Layers, Network, Plus, RefreshCw, Save, Search, Server, Trash2, Upload, X } from 'lucide-react';
+import {
+  Network,
+  Server,
+  Layers,
+  Activity,
+  RefreshCw,
+  Download,
+  Upload,
+  Search,
+  Plus,
+  Trash2,
+  Edit3,
+  AlertCircle,
+  X,
+  PanelLeftClose,
+  PanelLeftOpen,
+  LogOut,
+  Check,
+  Copy,
+  Menu,
+  Cpu,
+  HardDrive,
+  ShieldCheck,
+  ChevronRight
+} from 'lucide-react';
 
 const API_BASE = '/api/v1';
 
@@ -29,12 +53,14 @@ function getRfc1918Error(ipStr) {
 
   if (o1 === 10) return null;
   if (o1 === 172) {
-    if (o2 >= 16 && o2 <= 31) return null;
-    return 'Private Class B must stay between 172.16.x.x and 172.31.x.x.';
+    return o2 >= 16 && o2 <= 31
+      ? null
+      : 'Private Class B must stay between 172.16.x.x and 172.31.x.x.';
   }
   if (o1 === 192) {
-    if (o2 === 168) return null;
-    return `192.${o2}.x.x is public. Private Class C must use 192.168.x.x.`;
+    return o2 === 168
+      ? null
+      : `192.${o2}.x.x is public. Private Class C must use 192.168.x.x.`;
   }
   return 'Address must be in a private range: 10.x, 172.16-31.x, or 192.168.x.';
 }
@@ -47,7 +73,6 @@ function getSubnetInfo(cidr) {
   const ipIntVal = ipToInt(ipStr);
   const networkInt = (ipIntVal & mask) >>> 0;
   const broadcastInt = (networkInt | (~mask >>> 0)) >>> 0;
-
   return {
     prefix,
     networkIp: intToIp(networkInt),
@@ -61,102 +86,87 @@ function getSubnetInfo(cidr) {
 function isIpInCidr(ip, cidr) {
   const info = getSubnetInfo(cidr);
   if (!info || !IP_REGEX.test(ip)) return false;
-  const targetInt = ipToInt(ip);
-  return (targetInt & info.mask) >>> 0 === info.networkInt;
+  return ((ipToInt(ip) & info.mask) >>> 0) === info.networkInt;
 }
 
-function DraggableModal({ title, onClose, widthClass = 'w-[580px]', children }) {
-  const modalRef = useRef(null);
-  const [pos, setPos] = useState({ x: 0, y: 0 });
-  const [isDragging, setIsDragging] = useState(false);
-  const dragStart = useRef({ mouseX: 0, mouseY: 0, posX: 0, posY: 0 });
-
+function ModalDialog({ title, subtitle, onClose, maxWidth = '480px', children }) {
   useEffect(() => {
-    if (modalRef.current) {
-      const rect = modalRef.current.getBoundingClientRect();
-      const initialLeft = Math.max(30, Math.round((window.innerWidth - rect.width) / 2));
-      const initialTop = Math.max(40, Math.round((window.innerHeight - rect.height) / 3));
-      setPos({ x: initialLeft, y: initialTop });
-    }
-  }, []);
-
-  const handleMouseDown = (e) => {
-    if (e.target.closest('button') || e.target.closest('input') || e.target.closest('select')) return;
-    setIsDragging(true);
-    dragStart.current = {
-      mouseX: e.clientX,
-      mouseY: e.clientY,
-      posX: pos.x,
-      posY: pos.y
+    const handleKeyDown = (e) => {
+      if (e.key === 'Escape') onClose();
     };
-  };
-
-  useEffect(() => {
-    const handleMouseMove = (e) => {
-      if (!isDragging) return;
-      const dx = e.clientX - dragStart.current.mouseX;
-      const dy = e.clientY - dragStart.current.mouseY;
-      
-      const nextX = Math.max(10, Math.min(window.innerWidth - 120, dragStart.current.posX + dx));
-      const nextY = Math.max(10, Math.min(window.innerHeight - 90, dragStart.current.posY + dy));
-      
-      setPos({ x: nextX, y: nextY });
-    };
-
-    const handleMouseUp = () => {
-      setIsDragging(false);
-    };
-
-    if (isDragging) {
-      window.addEventListener('mousemove', handleMouseMove);
-      window.addEventListener('mouseup', handleMouseUp);
-    }
-    return () => {
-      window.removeEventListener('mousemove', handleMouseMove);
-      window.removeEventListener('mouseup', handleMouseUp);
-    };
-  }, [isDragging]);
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [onClose]);
 
   return (
-    <div className="fixed inset-0 z-50 pointer-events-none">
-      <div 
-        onClick={onClose}
-        className="absolute inset-0 bg-black/80 pointer-events-auto backdrop-blur-[2px]" 
-      />
-
+    <div
+      style={{
+        position: 'fixed',
+        inset: 0,
+        zIndex: 60,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        padding: '16px',
+        backgroundColor: 'rgba(5, 8, 15, 0.75)',
+        backdropFilter: 'blur(4px)'
+      }}
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
+    >
       <div
-        ref={modalRef}
         style={{
-          left: `${pos.x}px`,
-          top: `${pos.y}px`,
-          position: 'fixed'
+          width: '100%',
+          maxWidth,
+          backgroundColor: 'var(--bg-panel)',
+          border: '1px solid var(--border-strong)',
+          borderRadius: '12px',
+          boxShadow: '0 24px 48px rgba(0, 0, 0, 0.65)',
+          overflow: 'hidden',
+          maxHeight: '90vh',
+          display: 'flex',
+          flexDirection: 'column'
         }}
-        className={`pointer-events-auto ${widthClass} bg-[#242432] border-4 border-[#686884] p-8 space-y-7 shadow-2xl select-text transition-shadow ${
-          isDragging ? 'shadow-amber-500/50 ring-4 ring-amber-400 cursor-grabbing' : 'shadow-black/95'
-        }`}
       >
         <div
-          onMouseDown={handleMouseDown}
-          className="flex items-center justify-between border-b-2 border-[#52526b] pb-4 cursor-grab active:cursor-grabbing select-none bg-[#323244] -mx-8 -mt-8 p-5 border-t-4 border-t-amber-400"
+          style={{
+            padding: '18px 22px 14px',
+            borderBottom: '1px solid var(--border-subtle)',
+            display: 'flex',
+            alignItems: 'flex-start',
+            justifyContent: 'space-between',
+            gap: '12px'
+          }}
         >
-          <div className="flex items-center gap-3">
-            <GripHorizontal className="w-5 h-5 text-amber-400" />
-            <h3 className="font-mono font-black text-sm uppercase tracking-wider text-amber-300">
+          <div style={{ minWidth: 0 }}>
+            <h3 style={{ margin: 0, fontSize: '15px', fontWeight: 600, color: 'var(--text-primary)' }}>
               {title}
             </h3>
+            {subtitle && (
+              <p style={{ margin: '4px 0 0', fontSize: '12px', color: 'var(--text-secondary)' }}>
+                {subtitle}
+              </p>
+            )}
           </div>
           <button
             type="button"
             onClick={onClose}
-            className="text-zinc-950 bg-white hover:bg-amber-300 font-extrabold px-2 py-1 border-2 border-white transition cursor-pointer"
+            style={{
+              background: 'transparent',
+              border: 'none',
+              color: 'var(--text-muted)',
+              padding: '4px',
+              borderRadius: '6px',
+              cursor: 'pointer',
+              display: 'flex'
+            }}
+            title="Close"
           >
-            <X className="w-4 h-4" />
+            <X size={16} />
           </button>
         </div>
-
-        <div className="pt-2">
-          {children}
-        </div>
+        <div style={{ padding: '20px 22px', overflowY: 'auto' }}>{children}</div>
       </div>
     </div>
   );
@@ -164,48 +174,46 @@ function DraggableModal({ title, onClose, widthClass = 'w-[580px]', children }) 
 
 export default function App() {
   const handleLogout = (e) => {
-    if (e && e.preventDefault) e.preventDefault();
+    if (e && typeof e.preventDefault === 'function') e.preventDefault();
     window.__netdock_logging_out = true;
-    fetch("/auth/logout", {
-      method: "POST",
-      headers: { "Accept": "application/json" }
-    })
-      .catch(() => {})
-      .finally(() => {
-        localStorage.clear();
-        sessionStorage.clear();
-        window.location.href = "/";
-      });
+    try {
+      localStorage.clear();
+      sessionStorage.clear();
+    } catch (err) {}
+    document.cookie = 'netdock_session=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;';
+    window.location.href = '/auth/logout';
   };
 
   const [hosts, setHosts] = useState([]);
   const [subnets, setSubnets] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  
-  const [search, setSearch] = useState('');
+  const [notice, setNotice] = useState(null);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [categoryFilter, setCategoryFilter] = useState('all');
   const [selectedHostId, setSelectedHostId] = useState(null);
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
-    return localStorage.getItem("netdock_sidebar_collapsed") === "true";
-  });
+  const [mobileInspectorOpen, setMobileInspectorOpen] = useState(false);
+  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
+  const [copiedField, setCopiedField] = useState(null);
 
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(
+    () => localStorage.getItem('netdock_sidebar_collapsed') === 'true'
+  );
   const toggleSidebar = () => {
-    setSidebarCollapsed(prev => {
+    setSidebarCollapsed((prev) => {
       const next = !prev;
-      localStorage.setItem("netdock_sidebar_collapsed", String(next));
+      localStorage.setItem('netdock_sidebar_collapsed', String(next));
       return next;
     });
   };
 
   const [activeTab, setActiveTab] = useState('roster');
+  const [editingNotes, setEditingNotes] = useState(false);
+  const [notesDraft, setNotesDraft] = useState('');
+  const [syncingDocker, setSyncingDocker] = useState(false);
 
-  const [isEditingNotes, setIsEditingNotes] = useState(false);
-  const [editedNotes, setEditedNotes] = useState('');
-  const [isSyncingDocker, setIsSyncingDocker] = useState(false);
-
-  const [isHostModalOpen, setIsHostModalOpen] = useState(false);
-  const [isSubnetModalOpen, setIsSubnetModalOpen] = useState(false);
-
+  const [showHostModal, setShowHostModal] = useState(false);
+  const [showSubnetModal, setShowSubnetModal] = useState(false);
   const fileInputRef = useRef(null);
 
   const [newHost, setNewHost] = useState({
@@ -232,31 +240,57 @@ export default function App() {
   const [hostErrors, setHostErrors] = useState({});
   const [subnetErrors, setSubnetErrors] = useState({});
 
+  const showToast = useCallback((msg) => {
+    setNotice(msg);
+    setTimeout(() => {
+      setNotice((prev) => (prev === msg ? null : prev));
+    }, 3800);
+  }, []);
+
+  const copyToClipboard = (text, label) => {
+    if (!text) return;
+    navigator.clipboard?.writeText(text);
+    setCopiedField(label);
+    setTimeout(() => setCopiedField(null), 1800);
+  };
+
   const fetchData = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
       const [hostsRes, subnetsRes] = await Promise.all([
-        fetch(`${API_BASE}/hosts`),
-        fetch(`${API_BASE}/subnets`)
+        fetch(`${API_BASE}/hosts`, { credentials: 'include' }),
+        fetch(`${API_BASE}/subnets`, { credentials: 'include' })
       ]);
 
-      if (!hostsRes.ok || !subnetsRes.ok) throw new Error('Could not communicate with database.');
+      if (hostsRes.status === 401 || subnetsRes.status === 401) {
+        if (!window.__netdock_logging_out) {
+          window.location.href = '/';
+        }
+        return;
+      }
+
+      if (!hostsRes.ok || !subnetsRes.ok) {
+        throw new Error('Could not communicate with database.');
+      }
 
       const [hostsData, subnetsData] = await Promise.all([
         hostsRes.json(),
         subnetsRes.json()
       ]);
 
-      setHosts(Array.isArray(hostsData) ? hostsData : []);
-      setSubnets(Array.isArray(subnetsData) ? subnetsData : []);
+      const validHosts = Array.isArray(hostsData) ? hostsData : [];
+      const validSubnets = Array.isArray(subnetsData) ? subnetsData : [];
 
-      if (Array.isArray(hostsData) && hostsData.length > 0 && !selectedHostId) {
-        setSelectedHostId(hostsData[0].id);
-        setEditedNotes(hostsData[0].notes || '');
+      setHosts(validHosts);
+      setSubnets(validSubnets);
+
+      if (validHosts.length > 0 && !selectedHostId) {
+        setSelectedHostId(validHosts[0].id);
+        setNotesDraft(validHosts[0].notes || '');
       }
     } catch (err) {
-      if (err.message !== "401" && !window.__netdock_logging_out) {
+      if (!window.__netdock_logging_out) {
         setError(err.message);
       }
     } finally {
@@ -268,38 +302,41 @@ export default function App() {
     fetchData();
   }, [fetchData]);
 
-  const activeHost = useMemo(() => {
-    return hosts.find(h => h.id === selectedHostId) || hosts[0] || null;
-  }, [hosts, selectedHostId]);
+  const selectedHost = useMemo(
+    () => hosts.find((h) => h.id === selectedHostId) || hosts[0] || null,
+    [hosts, selectedHostId]
+  );
 
   useEffect(() => {
-    if (activeHost) {
-      setEditedNotes(activeHost.notes || '');
-      setIsEditingNotes(false);
+    if (selectedHost) {
+      setNotesDraft(selectedHost.notes || '');
+      setEditingNotes(false);
     }
-  }, [activeHost]);
+  }, [selectedHost]);
 
-  const handleSyncDocker = async () => {
-    setIsSyncingDocker(true);
+  const handleDockerSync = async () => {
+    setSyncingDocker(true);
     try {
-      const res = await fetch(`${API_BASE}/integrations/docker/sync`, { method: 'POST' });
+      const res = await fetch(`${API_BASE}/integrations/docker/sync`, {
+        method: 'POST',
+        credentials: 'include'
+      });
       if (!res.ok) {
         const errData = await res.json();
         throw new Error(errData.detail || 'Docker socket sync failed.');
       }
       const data = await res.json();
-      alert(`Docker sync complete! Discovered ${data.total_discovered} containers, synchronized ${data.synced_count}.`);
+      showToast(`Synchronized ${data.synced_count} of ${data.total_discovered} containers.`);
       fetchData();
     } catch (err) {
-      alert(`Sync Fault: ${err.message}`);
+      setError(`Sync Fault: ${err.message}`);
     } finally {
-      setIsSyncingDocker(false);
+      setSyncingDocker(false);
     }
   };
 
-  const validateSubnetField = (field, value, allValues = newSubnet) => {
+  const validateSubnetField = (field, value, currentSubnet = newSubnet) => {
     const errs = { ...subnetErrors };
-
     if (field === 'name') {
       if (!value.trim() || value.trim().length < 2) {
         errs.name = 'Subnet label required (2+ chars).';
@@ -307,51 +344,48 @@ export default function App() {
         delete errs.name;
       }
     }
-
     if (field === 'cidr') {
-      const clean = value.trim();
-      if (!clean) {
+      const trimmed = value.trim();
+      if (!trimmed) {
         errs.cidr = 'CIDR notation required.';
-      } else if (!CIDR_REGEX.test(clean)) {
+      } else if (!CIDR_REGEX.test(trimmed)) {
         errs.cidr = 'Format: 192.168.1.0/24';
       } else {
-        const baseIp = clean.split('/')[0];
+        const baseIp = trimmed.split('/')[0];
         const rfcErr = getRfc1918Error(baseIp);
         if (rfcErr) {
           errs.cidr = rfcErr;
         } else {
           delete errs.cidr;
-          if (allValues.gateway) {
-            validateSubnetField('gateway', allValues.gateway, allValues);
+          if (currentSubnet.gateway) {
+            validateSubnetField('gateway', currentSubnet.gateway, currentSubnet);
           }
         }
       }
     }
-
     if (field === 'vlan') {
-      const num = parseInt(value, 10);
-      if (isNaN(num) || num < 1 || num > 4094) {
+      const v = parseInt(value, 10);
+      if (isNaN(v) || v < 1 || v > 4094) {
         errs.vlan = 'VLAN range: 1 - 4094.';
       } else {
         delete errs.vlan;
       }
     }
-
     if (field === 'gateway') {
-      const clean = value.trim();
-      if (!clean) {
+      const trimmed = value.trim();
+      if (!trimmed) {
         errs.gateway = 'Gateway IP is required.';
       } else {
-        const rfcErr = getRfc1918Error(clean);
+        const rfcErr = getRfc1918Error(trimmed);
         if (rfcErr) {
           errs.gateway = rfcErr;
-        } else if (allValues.cidr && CIDR_REGEX.test(allValues.cidr.trim())) {
-          const subInfo = getSubnetInfo(allValues.cidr.trim());
-          if (!isIpInCidr(clean, allValues.cidr.trim())) {
-            errs.gateway = `Must be inside ${allValues.cidr.trim()}.`;
-          } else if (subInfo && clean === subInfo.networkIp) {
+        } else if (currentSubnet.cidr && CIDR_REGEX.test(currentSubnet.cidr.trim())) {
+          const info = getSubnetInfo(currentSubnet.cidr.trim());
+          if (!isIpInCidr(trimmed, currentSubnet.cidr.trim())) {
+            errs.gateway = `Must be inside ${currentSubnet.cidr.trim()}.`;
+          } else if (info && trimmed === info.networkIp) {
             errs.gateway = 'Cannot assign base network address (.0).';
-          } else if (subInfo && clean === subInfo.broadcastIp) {
+          } else if (info && trimmed === info.broadcastIp) {
             errs.gateway = 'Cannot assign broadcast address (.255).';
           } else {
             delete errs.gateway;
@@ -361,46 +395,43 @@ export default function App() {
         }
       }
     }
-
     setSubnetErrors(errs);
   };
 
-  const validateHostField = (field, value, allValues = newHost) => {
+  const validateHostField = (field, value, currentHost = newHost) => {
     const errs = { ...hostErrors };
-
     if (field === 'hostname') {
-      const clean = value.trim();
-      if (!clean) {
+      const trimmed = value.trim();
+      if (!trimmed) {
         errs.hostname = 'Hostname is required.';
-      } else if (!HOSTNAME_REGEX.test(clean)) {
+      } else if (!HOSTNAME_REGEX.test(trimmed)) {
         errs.hostname = 'Letters, numbers, and hyphens only.';
       } else {
         delete errs.hostname;
       }
     }
-
     if (field === 'ip') {
-      const clean = value.trim();
-      if (!clean) {
+      const trimmed = value.trim();
+      if (!trimmed) {
         errs.ip = 'IP address is required.';
       } else {
-        const rfcErr = getRfc1918Error(clean);
+        const rfcErr = getRfc1918Error(trimmed);
         if (rfcErr) {
           errs.ip = rfcErr;
-        } else if (hosts.some(h => h.ip === clean)) {
-          const conflict = hosts.find(h => h.ip === clean);
-          errs.ip = `Already in use by ${conflict.hostname}.`;
+        } else if (hosts.some((h) => h.ip === trimmed)) {
+          const existing = hosts.find((h) => h.ip === trimmed);
+          errs.ip = `Already in use by ${existing.hostname}.`;
         } else {
           delete errs.ip;
-          if (allValues.subnet_id) {
-            const sub = subnets.find(s => s.id === allValues.subnet_id);
+          if (currentHost.subnet_id) {
+            const sub = subnets.find((s) => s.id === currentHost.subnet_id);
             if (sub) {
-              const subInfo = getSubnetInfo(sub.cidr);
-              if (!isIpInCidr(clean, sub.cidr)) {
+              const info = getSubnetInfo(sub.cidr);
+              if (!isIpInCidr(trimmed, sub.cidr)) {
                 errs.ip = `IP must be within ${sub.name} (${sub.cidr}).`;
-              } else if (subInfo && clean === subInfo.networkIp) {
+              } else if (info && trimmed === info.networkIp) {
                 errs.ip = 'Cannot assign base network address (.0).';
-              } else if (subInfo && clean === subInfo.broadcastIp) {
+              } else if (info && trimmed === info.broadcastIp) {
                 errs.ip = 'Cannot assign broadcast address (.255).';
               }
             }
@@ -408,229 +439,190 @@ export default function App() {
         }
       }
     }
-
     if (field === 'mac') {
-      const clean = value.trim();
-      if (clean && !MAC_REGEX.test(clean)) {
+      const trimmed = value.trim();
+      if (trimmed && !MAC_REGEX.test(trimmed)) {
         errs.mac = 'Format: xx:xx:xx:xx:xx:xx (or empty)';
       } else {
         delete errs.mac;
       }
     }
-
     if (field === 'subnet_id') {
       if (!value) {
         errs.subnet_id = 'Please assign a subnet.';
       } else {
         delete errs.subnet_id;
-        if (allValues.ip && !getRfc1918Error(allValues.ip.trim())) {
-          const sub = subnets.find(s => s.id === value);
+        if (currentHost.ip && !getRfc1918Error(currentHost.ip.trim())) {
+          const sub = subnets.find((s) => s.id === value);
           if (sub) {
-            const subInfo = getSubnetInfo(sub.cidr);
-            const cleanIp = allValues.ip.trim();
-            if (!isIpInCidr(cleanIp, sub.cidr)) {
+            const info = getSubnetInfo(sub.cidr);
+            const ipTrim = currentHost.ip.trim();
+            if (!isIpInCidr(ipTrim, sub.cidr)) {
               errs.ip = `IP must be within ${sub.name} (${sub.cidr}).`;
-            } else if (subInfo && cleanIp === subInfo.networkIp) {
+            } else if (info && ipTrim === info.networkIp) {
               errs.ip = 'Cannot assign base network address (.0).';
-            } else if (subInfo && cleanIp === subInfo.broadcastIp) {
+            } else if (info && ipTrim === info.broadcastIp) {
               errs.ip = 'Cannot assign broadcast address (.255).';
-            } else if (!hosts.some(h => h.ip === cleanIp)) {
+            } else if (!hosts.some((h) => h.ip === ipTrim)) {
               delete errs.ip;
             }
           }
         }
       }
     }
-
     setHostErrors(errs);
   };
 
-  const isSubnetFormValid = useMemo(() => {
+  const isSubnetValid = useMemo(() => {
     const baseIp = newSubnet.cidr.trim().split('/')[0];
-    const subInfo = getSubnetInfo(newSubnet.cidr.trim());
+    const info = getSubnetInfo(newSubnet.cidr.trim());
     const gw = newSubnet.gateway.trim();
-
+    const vlanNum = parseInt(newSubnet.vlan, 10);
     return (
       newSubnet.name.trim().length >= 2 &&
       CIDR_REGEX.test(newSubnet.cidr.trim()) &&
       !getRfc1918Error(baseIp) &&
-      parseInt(newSubnet.vlan, 10) >= 1 &&
-      parseInt(newSubnet.vlan, 10) <= 4094 &&
+      vlanNum >= 1 &&
+      vlanNum <= 4094 &&
       !getRfc1918Error(gw) &&
       isIpInCidr(gw, newSubnet.cidr.trim()) &&
-      subInfo && gw !== subInfo.networkIp && gw !== subInfo.broadcastIp &&
+      info &&
+      gw !== info.networkIp &&
+      gw !== info.broadcastIp &&
       Object.keys(subnetErrors).length === 0
     );
   }, [newSubnet, subnetErrors]);
 
-  const isHostFormValid = useMemo(() => {
-    const selectedSub = subnets.find(s => s.id === newHost.subnet_id);
-    const subInfo = selectedSub ? getSubnetInfo(selectedSub.cidr) : null;
-    const ip = newHost.ip.trim();
-    const mac = newHost.mac.trim();
-
-    const isMacValid = !mac || MAC_REGEX.test(mac);
-
+  const isHostValid = useMemo(() => {
+    const sub = subnets.find((s) => s.id === newHost.subnet_id);
+    const info = sub ? getSubnetInfo(sub.cidr) : null;
+    const ipTrim = newHost.ip.trim();
+    const macTrim = newHost.mac.trim();
+    const macOk = !macTrim || MAC_REGEX.test(macTrim);
     return (
       HOSTNAME_REGEX.test(newHost.hostname.trim()) &&
-      !getRfc1918Error(ip) &&
-      isMacValid &&
-      Boolean(newHost.subnet_id) &&
-      selectedSub && isIpInCidr(ip, selectedSub.cidr) &&
-      subInfo && ip !== subInfo.networkIp && ip !== subInfo.broadcastIp &&
-      !hosts.some(h => h.ip === ip) &&
+      !getRfc1918Error(ipTrim) &&
+      macOk &&
+      !!newHost.subnet_id &&
+      sub &&
+      isIpInCidr(ipTrim, sub.cidr) &&
+      info &&
+      ipTrim !== info.networkIp &&
+      ipTrim !== info.broadcastIp &&
+      !hosts.some((h) => h.ip === ipTrim) &&
       Object.keys(hostErrors).length === 0
     );
   }, [newHost, hostErrors, subnets, hosts]);
 
   const filteredHosts = useMemo(() => {
-    const q = search.toLowerCase();
-    return hosts.filter(h => 
-      h.hostname?.toLowerCase().includes(q) ||
-      h.ip?.includes(q) ||
-      h.mac?.toLowerCase().includes(q) ||
-      h.device_type?.toLowerCase().includes(q)
+    const q = searchQuery.toLowerCase().trim();
+    return hosts.filter(
+      (h) =>
+        !q ||
+        h.hostname?.toLowerCase().includes(q) ||
+        h.ip?.includes(q) ||
+        h.mac?.toLowerCase().includes(q) ||
+        h.device_type?.toLowerCase().includes(q) ||
+        h.os?.toLowerCase().includes(q)
     );
-  }, [hosts, search]);
+  }, [hosts, searchQuery]);
 
-  const stats = useMemo(() => {
-    const total = hosts.length;
-    const active = hosts.filter(h => h.status === 'active').length;
-    const containers = hosts.filter(h => h.device_type === 'container').length;
-    return { total, active, containers };
-  }, [hosts]);
+  const physicalHosts = useMemo(
+    () =>
+      filteredHosts.filter((h) =>
+        ['bare-metal', 'server', 'switch', 'sbc'].includes((h.device_type || '').toLowerCase())
+      ),
+    [filteredHosts]
+  );
+
+  const virtualHosts = useMemo(
+    () =>
+      filteredHosts.filter(
+        (h) =>
+          !['bare-metal', 'server', 'switch', 'sbc'].includes((h.device_type || '').toLowerCase())
+      ),
+    [filteredHosts]
+  );
+
+  const stats = useMemo(
+    () => ({
+      total: hosts.length,
+      active: hosts.filter((h) => h.status === 'active').length,
+      containers: hosts.filter((h) => h.device_type === 'container').length
+    }),
+    [hosts]
+  );
 
   const handleSaveNotes = async () => {
-    if (!activeHost) return;
+    if (!selectedHost) return;
     try {
-      const res = await fetch(`${API_BASE}/hosts/${activeHost.id}`, {
+      const res = await fetch(`${API_BASE}/hosts/${selectedHost.id}`, {
         method: 'PUT',
+        credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...activeHost, notes: editedNotes })
+        body: JSON.stringify({ ...selectedHost, notes: notesDraft })
       });
       if (!res.ok) throw new Error('Could not save notes.');
       const updated = await res.json();
-      setHosts(prev => prev.map(h => h.id === updated.id ? updated : h));
-      setIsEditingNotes(false);
+      setHosts((prev) => prev.map((h) => (h.id === updated.id ? updated : h)));
+      setEditingNotes(false);
+      showToast('Runbook notes updated.');
     } catch (err) {
-      alert(err.message);
+      setError(err.message);
     }
   };
 
-  const handleDeleteHost = async (hostId) => {
-    if (!confirm(`Are you sure you want to remove host "${hostId}"?`)) return;
+  const handleDeleteHost = async (id) => {
+    const target = hosts.find((h) => h.id === id);
+    const label = target ? target.hostname : id;
+    if (!confirm(`Remove host "${label}" from inventory?`)) return;
     try {
-      const res = await fetch(`${API_BASE}/hosts/${hostId}`, { method: 'DELETE' });
+      const res = await fetch(`${API_BASE}/hosts/${id}`, {
+        method: 'DELETE',
+        credentials: 'include'
+      });
       if (!res.ok) throw new Error('Could not delete host.');
-      setHosts(prev => prev.filter(h => h.id !== hostId));
-      if (selectedHostId === hostId) {
-        const remaining = hosts.filter(h => h.id !== hostId);
+      setHosts((prev) => prev.filter((h) => h.id !== id));
+      if (selectedHostId === id) {
+        const remaining = hosts.filter((h) => h.id !== id);
         setSelectedHostId(remaining.length > 0 ? remaining[0].id : null);
       }
+      showToast(`Removed ${label}.`);
     } catch (err) {
-      alert(err.message);
+      setError(err.message);
     }
   };
 
-  const handleDeleteSubnet = async (subnet) => {
-    const assigned = hosts.filter(h => h.subnet_id === subnet.id);
+  const handleDeleteSubnet = async (sub) => {
+    const assigned = hosts.filter((h) => h.subnet_id === sub.id);
     if (assigned.length > 0) {
-      alert(`Cannot delete "${subnet.name}". Assigned hosts exist:\n${assigned.map(h => h.hostname).join(', ')}`);
+      alert(
+        `Cannot delete "${sub.name}". Assigned hosts exist:\n${assigned
+          .map((h) => h.hostname)
+          .join(', ')}`
+      );
       return;
     }
-
-    if (!confirm(`Delete subnet "${subnet.name}" (${subnet.cidr})?`)) return;
-
+    if (!confirm(`Delete subnet "${sub.name}" (${sub.cidr})?`)) return;
     try {
-      const res = await fetch(`${API_BASE}/subnets/${subnet.id}`, { method: 'DELETE' });
+      const res = await fetch(`${API_BASE}/subnets/${sub.id}`, {
+        method: 'DELETE',
+        credentials: 'include'
+      });
       if (!res.ok) {
-        const data = await res.json();
-        throw new Error(data.detail || 'Could not delete subnet.');
+        const errData = await res.json();
+        throw new Error(errData.detail || 'Could not delete subnet.');
       }
-      setSubnets(prev => prev.filter(s => s.id !== subnet.id));
+      setSubnets((prev) => prev.filter((s) => s.id !== sub.id));
+      showToast(`Deleted subnet ${sub.name}.`);
     } catch (err) {
-      alert(err.message);
+      setError(err.message);
     }
   };
 
-  const handleCreateHost = async (e) => {
-    e.preventDefault();
-    if (!isHostFormValid) return;
-
+  const handleExport = async () => {
     try {
-      const payload = {
-        ...newHost,
-        id: newHost.id.trim() || `host-${Date.now()}`,
-        mac: newHost.mac.trim() || "",
-        parent_id: newHost.parent_id.trim() || null
-      };
-
-      const res = await fetch(`${API_BASE}/hosts`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-      });
-
-      if (!res.ok) {
-        const data = await res.json();
-        throw new Error(data.detail || 'Could not create host.');
-      }
-      const created = await res.json();
-      setHosts(prev => [...prev, created]);
-      setSelectedHostId(created.id);
-      setIsHostModalOpen(false);
-      setNewHost({
-        id: '',
-        hostname: '',
-        ip: '',
-        mac: '',
-        os: 'Ubuntu 24.04 LTS',
-        status: 'active',
-        device_type: 'server',
-        subnet_id: subnets[0]?.id || '',
-        parent_id: '',
-        notes: ''
-      });
-      setHostErrors({});
-    } catch (err) {
-      alert(err.message);
-    }
-  };
-
-  const handleCreateSubnet = async (e) => {
-    e.preventDefault();
-    if (!isSubnetFormValid) return;
-
-    try {
-      const payload = {
-        ...newSubnet,
-        id: newSubnet.id.trim() || `sub-${Date.now()}`,
-        vlan: parseInt(newSubnet.vlan, 10) || 0
-      };
-
-      const res = await fetch(`${API_BASE}/subnets`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-      });
-
-      if (!res.ok) {
-        const data = await res.json();
-        throw new Error(data.detail || 'Could not create subnet.');
-      }
-      const created = await res.json();
-      setSubnets(prev => [...prev, created]);
-      setIsSubnetModalOpen(false);
-      setNewSubnet({ id: '', name: '', cidr: '', vlan: '10', gateway: '' });
-      setSubnetErrors({});
-    } catch (err) {
-      alert(err.message);
-    }
-  };
-
-  const handleExportBackup = async () => {
-    try {
-      const res = await fetch(`${API_BASE}/export`);
+      const res = await fetch(`${API_BASE}/export`, { credentials: 'include' });
       if (!res.ok) throw new Error('Could not generate backup file.');
       const data = await res.json();
       const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
@@ -640,797 +632,2199 @@ export default function App() {
       a.download = `netdock_backup_${new Date().toISOString().split('T')[0]}.json`;
       a.click();
       URL.revokeObjectURL(url);
+      showToast('Backup exported.');
     } catch (err) {
-      alert(err.message);
+      setError(err.message);
     }
   };
 
-  const handleImportFile = async (e) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    try {
-      const text = await file.text();
-      const payload = JSON.parse(text);
-      const res = await fetch(`${API_BASE}/import`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-      });
-      if (!res.ok) throw new Error('Could not import backup.');
-      alert('Inventory restored successfully.');
-      fetchData();
-    } catch (err) {
-      alert(`Import error: ${err.message}`);
-    } finally {
-      if (fileInputRef.current) fileInputRef.current.value = '';
-    }
-  };
+  const selectedSubnet = useMemo(
+    () => subnets.find((s) => s.id === selectedHost?.subnet_id) || null,
+    [subnets, selectedHost]
+  );
+
+  const selectedParent = useMemo(
+    () => hosts.find((h) => h.id === selectedHost?.parent_id) || null,
+    [hosts, selectedHost]
+  );
+
+  const hostedChildrenCount = useMemo(
+    () => (selectedHost ? hosts.filter((h) => h.parent_id === selectedHost.id).length : 0),
+    [hosts, selectedHost]
+  );
+
+  const renderHostSection = (title, subtitle, groupHosts, emptyMessage) => (
+    <div style={{ marginBottom: '28px' }}>
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          marginBottom: '10px',
+          gap: '12px'
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0 }}>
+          <h2
+            style={{
+              margin: 0,
+              fontSize: '13px',
+              fontWeight: 600,
+              color: 'var(--text-primary)',
+              letterSpacing: '-0.01em'
+            }}
+          >
+            {title}
+          </h2>
+          <span
+            style={{
+              fontSize: '11px',
+              fontFamily: 'monospace',
+              fontWeight: 600,
+              padding: '1px 7px',
+              borderRadius: '999px',
+              backgroundColor: 'var(--accent-soft)',
+              color: 'var(--accent-text)'
+            }}
+          >
+            {groupHosts.length}
+          </span>
+        </div>
+        {subtitle && (
+          <span
+            style={{
+              fontSize: '12px',
+              color: 'var(--text-muted)',
+              whiteSpace: 'nowrap',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis'
+            }}
+          >
+            {subtitle}
+          </span>
+        )}
+      </div>
+
+      {groupHosts.length === 0 ? (
+        <div
+          style={{
+            padding: '28px 20px',
+            textAlign: 'center',
+            backgroundColor: 'var(--bg-surface)',
+            border: '1px dashed var(--border-subtle)',
+            borderRadius: '10px',
+            color: 'var(--text-muted)',
+            fontSize: '12.5px'
+          }}
+        >
+          {emptyMessage}
+        </div>
+      ) : (
+        <div className="nd-table-card">
+          <div className="nd-host-grid-header">
+            <div>Host / Node</div>
+            <div>Type</div>
+            <div className="nd-col-subnet">Subnet</div>
+            <div className="nd-col-mac">MAC Address</div>
+            <div style={{ textAlign: 'right' }}>IPv4 Address</div>
+          </div>
+
+          {groupHosts.map((host) => {
+            const isSelected = host.id === selectedHost?.id;
+            const sub = subnets.find((s) => s.id === host.subnet_id);
+            const isActive = host.status === 'active';
+
+            return (
+              <div
+                key={host.id}
+                onClick={() => {
+                  setSelectedHostId(host.id);
+                  setMobileInspectorOpen(true);
+                }}
+                className={`nd-host-grid-row ${isSelected ? 'is-selected' : ''}`}
+              >
+                {/* Column 1: Status + Hostname + OS */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', minWidth: 0 }}>
+                  <span
+                    title={isActive ? 'Active' : 'Offline'}
+                    style={{
+                      width: '8px',
+                      height: '8px',
+                      borderRadius: '50%',
+                      flexShrink: 0,
+                      backgroundColor: isActive ? 'var(--status-emerald)' : 'var(--status-rose)',
+                      boxShadow: isActive
+                        ? '0 0 0 3px rgba(16, 185, 129, 0.15)'
+                        : '0 0 0 3px rgba(244, 63, 94, 0.15)'
+                    }}
+                  />
+                  <div style={{ minWidth: 0 }}>
+                    <div
+                      className="nd-truncate"
+                      title={host.hostname}
+                      style={{
+                        fontSize: '13px',
+                        fontWeight: 500,
+                        color: isSelected ? '#ffffff' : 'var(--text-primary)'
+                      }}
+                    >
+                      {host.hostname}
+                    </div>
+                    {host.os && (
+                      <div
+                        className="nd-truncate"
+                        title={host.os}
+                        style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '1px' }}
+                      >
+                        {host.os}
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Column 2: Device Type Badge */}
+                <div style={{ minWidth: 0 }}>
+                  <span
+                    className="nd-truncate"
+                    style={{
+                      display: 'inline-block',
+                      maxWidth: '100%',
+                      fontSize: '11px',
+                      fontWeight: 500,
+                      textTransform: 'capitalize',
+                      padding: '2px 8px',
+                      borderRadius: '5px',
+                      backgroundColor: 'rgba(148, 163, 184, 0.08)',
+                      border: '1px solid rgba(148, 163, 184, 0.12)',
+                      color: 'var(--text-secondary)'
+                    }}
+                  >
+                    {host.device_type}
+                  </span>
+                </div>
+
+                {/* Column 3: Subnet */}
+                <div className="nd-col-subnet nd-truncate" title={sub ? `${sub.name} (${sub.cidr})` : ''}>
+                  {sub ? (
+                    <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
+                      {sub.name}
+                    </span>
+                  ) : (
+                    <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>—</span>
+                  )}
+                </div>
+
+                {/* Column 4: MAC Address */}
+                <div className="nd-col-mac nd-truncate" title={host.mac || 'No MAC recorded'}>
+                  <span
+                    style={{
+                      fontSize: '11.5px',
+                      fontFamily: 'monospace',
+                      color: host.mac ? 'var(--text-secondary)' : 'var(--text-muted)'
+                    }}
+                  >
+                    {host.mac || '—'}
+                  </span>
+                </div>
+
+                {/* Column 5: IPv4 Address */}
+                <div style={{ textAlign: 'right', minWidth: 0 }}>
+                  <span
+                    title={host.ip}
+                    style={{
+                      fontSize: '12.5px',
+                      fontFamily: 'monospace',
+                      fontWeight: 500,
+                      color: isSelected ? 'var(--accent-text)' : 'var(--text-primary)',
+                      backgroundColor: isSelected ? 'var(--accent-soft)' : 'rgba(9, 13, 20, 0.55)',
+                      border: `1px solid ${
+                        isSelected ? 'rgba(99, 102, 241, 0.35)' : 'var(--border-subtle)'
+                      }`,
+                      padding: '3px 8px',
+                      borderRadius: '6px',
+                      display: 'inline-block',
+                      maxWidth: '100%',
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap'
+                    }}
+                  >
+                    {host.ip}
+                  </span>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
 
   return (
-    <div className="flex h-screen bg-[#0d0d12] text-zinc-100 font-sans select-none overflow-hidden p-3.5">
-      <input 
-        type="file" 
-        ref={fileInputRef} 
-        onChange={handleImportFile} 
-        accept=".json" 
-        className="placeholder-zinc-500 text-zinc-100 hidden" 
+    <div className="nd-app-shell">
+      <input
+        type="file"
+        ref={fileInputRef}
+        onChange={async (e) => {
+          const file = e.target.files?.[0];
+          if (!file) return;
+          try {
+            const text = await file.text();
+            const payload = JSON.parse(text);
+            const res = await fetch(`${API_BASE}/import`, {
+              method: 'POST',
+              credentials: 'include',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(payload)
+            });
+            if (!res.ok) throw new Error('Could not import backup.');
+            showToast('Inventory backup restored successfully.');
+            fetchData();
+          } catch (err) {
+            setError(`Import error: ${err.message}`);
+          } finally {
+            if (fileInputRef.current) fileInputRef.current.value = '';
+          }
+        }}
+        accept=".json"
+        style={{ display: 'none' }}
       />
 
-      {/* Main Modular Chassis Frame */}
-      <div className="flex-1 flex overflow-hidden border-2 border-[#54546c] shadow-[0_0_25px_rgba(0,0,0,0.8)] bg-[#14141b]">
-
-        {/* Sidebar Frame */}
-        <aside
+      {/* Mobile Sidebar Backdrop */}
+      {mobileSidebarOpen && (
+        <div
+          onClick={() => setMobileSidebarOpen(false)}
           style={{
-            width: sidebarCollapsed ? "5rem" : "18rem",
-            minWidth: sidebarCollapsed ? "5rem" : "18rem",
-            maxWidth: sidebarCollapsed ? "5rem" : "18rem"
+            position: 'fixed',
+            inset: 0,
+            backgroundColor: 'rgba(0, 0, 0, 0.6)',
+            zIndex: 25
           }}
-          className="relative transition-all duration-200 border-r-2 border-[#54546c] bg-[#1a1a24] flex flex-col justify-between shrink-0 z-20 overflow-hidden select-none"
-        >
-          <div>
-            {/* Header Brand */}
-            <div className={`h-20 border-b-2 border-[#54546c] ${sidebarCollapsed ? "px-2 justify-center" : "px-6 justify-between"} flex items-center bg-[#232332]`}>
-              <div className="flex items-center gap-3">
-                <div className="p-2 border-2 border-amber-400 bg-[#2f2f42] text-amber-300 shadow shrink-0">
-                  <Network className="w-5 h-5" />
-                </div>
-                {!sidebarCollapsed && (
-                  <div>
-                    <span className="font-mono font-black text-sm tracking-wider text-amber-400 uppercase block">NetDock</span>
-                    <span className="text-[10px] text-zinc-300 font-mono tracking-wider block font-bold">TERMINAL // V1.0</span>
-                  </div>
-                )}
+        />
+      )}
+
+      {/* LEFT PANEL: Navigation Sidebar */}
+      <aside
+        className={`nd-sidebar ${sidebarCollapsed ? 'is-collapsed' : ''} ${
+          mobileSidebarOpen ? 'is-mobile-open' : ''
+        }`}
+      >
+        <div>
+          {/* Brand Header */}
+          <div
+            style={{
+              height: '60px',
+              padding: sidebarCollapsed ? '0 12px' : '0 16px',
+              borderBottom: '1px solid var(--border-subtle)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: sidebarCollapsed ? 'center' : 'space-between',
+              gap: '10px'
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', minWidth: 0 }}>
+              <div
+                style={{
+                  width: '30px',
+                  height: '30px',
+                  borderRadius: '8px',
+                  backgroundColor: 'var(--accent-soft)',
+                  border: '1px solid rgba(99, 102, 241, 0.35)',
+                  color: 'var(--accent-text)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  flexShrink: 0
+                }}
+              >
+                <Network size={16} />
               </div>
+              {!sidebarCollapsed && (
+                <div style={{ minWidth: 0 }}>
+                  <div
+                    className="nd-truncate"
+                    style={{
+                      fontSize: '14px',
+                      fontWeight: 600,
+                      color: 'var(--text-primary)',
+                      letterSpacing: '-0.01em'
+                    }}
+                  >
+                    NetDock
+                  </div>
+                  <div
+                    className="nd-truncate"
+                    style={{ fontSize: '11px', color: 'var(--text-muted)' }}
+                  >
+                    Infrastructure
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {!sidebarCollapsed && (
               <button
                 type="button"
                 onClick={toggleSidebar}
-                className="p-1.5 border border-[#54546c] bg-[#29293a] text-zinc-300 hover:text-amber-400 hover:border-amber-400 transition cursor-pointer shrink-0"
-                title={sidebarCollapsed ? "Expand Sidebar" : "Collapse Sidebar"}
+                title="Collapse sidebar"
+                style={{
+                  background: 'transparent',
+                  border: 'none',
+                  color: 'var(--text-muted)',
+                  padding: '5px',
+                  borderRadius: '6px',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  flexShrink: 0
+                }}
               >
-                {sidebarCollapsed ? <ChevronRight className="w-4 h-4 text-amber-400" /> : <ChevronLeft className="w-4 h-4 text-amber-400" />}
+                <PanelLeftClose size={15} />
               </button>
-            </div>
-
-            {/* Navigation Links */}
-            <div className={`pt-6 pb-2 text-xs font-mono text-amber-300 uppercase tracking-widest font-black ${sidebarCollapsed ? "text-center text-[10px] px-0" : "px-6"}`}>
-              {!sidebarCollapsed ? "// TELEMETRY" : "//"}
-            </div>
-            <nav className={`w-full flex flex-col space-y-2 ${sidebarCollapsed ? "px-0" : "px-4"}`}>
-              <button 
-                onClick={() => setActiveTab('roster')}
-                className={`w-full flex items-center ${sidebarCollapsed ? "justify-center px-0 h-12" : "gap-3.5 px-4 py-3"} text-xs font-mono uppercase tracking-wider text-left transition shadow-md cursor-pointer border-2 ${
-                  activeTab === 'roster' 
-                    ? 'bg-amber-400 text-black font-black border-white ring-2 ring-amber-300' 
-                    : 'bg-[#333346] text-white hover:bg-[#43435c] hover:border-amber-400 border-[#60607a] font-extrabold'
-                }`}
-              >
-                <Server className={`w-4 h-4 ${activeTab === 'roster' ? 'text-black' : 'text-amber-300'}`} /> {!sidebarCollapsed && <span>01_HOST_ROSTER</span>}
-              </button>
-              <button 
-                onClick={() => setActiveTab('subnets')}
-                className={`w-full flex items-center ${sidebarCollapsed ? "justify-center px-0 h-12" : "gap-3.5 px-4 py-3"} text-xs font-mono uppercase tracking-wider text-left transition shadow-md cursor-pointer border-2 ${
-                  activeTab === 'subnets' 
-                    ? 'bg-amber-400 text-black font-black border-white ring-2 ring-amber-300' 
-                    : 'bg-[#333346] text-white hover:bg-[#43435c] hover:border-amber-400 border-[#60607a] font-extrabold'
-                }`}
-              >
-                <Layers className={`w-4 h-4 ${activeTab === 'subnets' ? 'text-black' : 'text-amber-300'}`} /> {!sidebarCollapsed && <span>02_SUBNETS</span>}
-              </button>
-              <button 
-                onClick={() => setActiveTab('topology')}
-                className={`w-full flex items-center ${sidebarCollapsed ? "justify-center px-0 h-12" : "gap-3.5 px-4 py-3"} text-xs font-mono uppercase tracking-wider text-left transition shadow-md cursor-pointer border-2 ${
-                  activeTab === 'topology' 
-                    ? 'bg-amber-400 text-black font-black border-white ring-2 ring-amber-300' 
-                    : 'bg-[#333346] text-white hover:bg-[#43435c] hover:border-amber-400 border-[#60607a] font-extrabold'
-                }`}
-              >
-                <Activity className={`w-4 h-4 ${activeTab === 'topology' ? 'text-black' : 'text-amber-300'}`} /> {!sidebarCollapsed && <span>03_MAP</span>}
-              </button>
-            </nav>
-
-            {/* Backup & Daemon Controls */}
-            <div className={`pt-6 pb-2 text-xs font-mono text-amber-300 uppercase tracking-widest font-black ${sidebarCollapsed ? "text-center text-[10px] px-0" : "px-6"}`}>
-              {!sidebarCollapsed ? "// DATA_OPS" : "//"}
-            </div>
-            <div className={`w-full flex flex-col space-y-2 ${sidebarCollapsed ? "px-0" : "px-4"}`}>
-              <button 
-                onClick={handleSyncDocker}
-                disabled={isSyncingDocker}
-                className={`w-full flex items-center ${sidebarCollapsed ? "justify-center px-0 h-12" : "gap-3.5 px-4 py-3"} text-xs font-mono text-left font-black text-zinc-950 bg-amber-400 hover:bg-amber-300 border-2 border-white shadow-md transition cursor-pointer`}
-              >
-                <RefreshCw className={`w-4 h-4 ${isSyncingDocker ? 'animate-spin' : ''}`} /> 
-                {!sidebarCollapsed && (isSyncingDocker ? 'SYNCING_DAEMON...' : 'SYNC_DOCKER')}
-              </button>
-              <button 
-                onClick={handleExportBackup}
-                className={`w-full flex items-center ${sidebarCollapsed ? "justify-center px-0 h-12" : "gap-3.5 px-4 py-3"} text-xs font-mono text-left font-extrabold text-white bg-[#333346] hover:bg-[#43435c] hover:text-amber-300 border-2 border-[#60607a] hover:border-amber-400 shadow-md transition cursor-pointer`}
-              >
-                <Download className="w-4 h-4 text-amber-300"  shrink-0 /> {!sidebarCollapsed && <span>DUMP_BACKUP</span>}
-              </button>
-              <button 
-                onClick={() => fileInputRef.current?.click()}
-                className={`w-full flex items-center ${sidebarCollapsed ? "justify-center px-0 h-12" : "gap-3.5 px-4 py-3"} text-xs font-mono text-left font-extrabold text-white bg-[#333346] hover:bg-[#43435c] hover:text-amber-300 border-2 border-[#60607a] hover:border-amber-400 shadow-md transition cursor-pointer`}
-              >
-                <Upload className="w-4 h-4 text-amber-300"  shrink-0 /> {!sidebarCollapsed && <span>RESTORE_BACKUP</span>}
-              </button>
-            </div>
+            )}
           </div>
 
-          {/* Sidebar Footer */}
-          <div className={`shrink-0 border-t-2 border-[#54546c] bg-[#1a1a24] px-3 py-3 flex items-center ${sidebarCollapsed ? "justify-center" : "justify-between"} font-mono select-none`} style={{ minHeight: "52px" }}>
-            <div className="flex items-center gap-3">
-              <button type="button"
+          {sidebarCollapsed && (
+            <div style={{ display: 'flex', justifyContent: 'center', paddingTop: '10px' }}>
+              <button
                 type="button"
-                onClick={handleLogout}
-                title="Terminate Session / Logout"
-                className="flex items-center justify-center bg-[#29293a] hover:bg-amber-400 border-2 border-[#54546c] hover:border-amber-300 text-zinc-300 hover:text-black rounded shadow transition-all cursor-pointer"
-                style={{ width: "34px", height: "34px", minWidth: "34px", minHeight: "34px", flexShrink: 0 }}
+                onClick={toggleSidebar}
+                title="Expand sidebar"
+                style={{
+                  background: 'transparent',
+                  border: 'none',
+                  color: 'var(--text-muted)',
+                  padding: '6px',
+                  borderRadius: '6px',
+                  cursor: 'pointer',
+                  display: 'flex'
+                }}
               >
-                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ width: "18px", height: "18px", minWidth: "18px", minHeight: "18px" }}>
-                  <path d="M18.36 6.64a9 9 0 1 1-12.73 0" />
-                  <line x1="12" y1="2" x2="12" y2="12" />
-                </svg>
+                <PanelLeftOpen size={15} />
               </button>
-              <span className="text-xs font-black tracking-wider text-zinc-300 whitespace-nowrap">{!sidebarCollapsed && "ENGINE: SQLITE_WAL"}</span>
-            </div>
-            <button
-              type="button"
-              onClick={() => window.location.reload()}
-              title="Refresh Interface"
-              className="flex items-center justify-center bg-[#29293a] hover:bg-amber-400 border-2 border-[#54546c] hover:border-amber-300 text-zinc-300 hover:text-black rounded shadow transition-all cursor-pointer"
-              style={{ width: "34px", height: "34px", minWidth: "34px", minHeight: "34px", flexShrink: 0 }}
-            >
-              <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ width: "18px", height: "18px", minWidth: "18px", minHeight: "18px" }}>
-                <polyline points="23 4 23 10 17 10" />
-                <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
-              </svg>
-            </button>
-          </div>
-        </aside>
-
-        {/* Main Content Arena */}
-        <div className="flex-1 flex flex-col overflow-hidden bg-[#14141b]">
-          <header className="h-20 border-b-2 border-[#54546c] px-10 flex items-center justify-between bg-[#1f1f2b]">
-            <div className="flex items-center gap-5 text-xs font-mono">
-              <div className="border-2 border-[#54546c] bg-[#29293a] px-4 py-2 flex items-center gap-3.5 shadow">
-                <span className="text-zinc-300 uppercase tracking-widest text-[11px] font-black">TOTAL:</span>
-                <span className="font-black text-white text-base">{stats.total}</span>
-              </div>
-              <div className="border-2 border-[#54546c] bg-[#29293a] px-4 py-2 flex items-center gap-3.5 shadow">
-                <span className="text-zinc-300 uppercase tracking-widest text-[11px] font-black">ACTIVE:</span>
-                <span className="font-black text-amber-400 text-base">{stats.active}</span>
-              </div>
-              <div className="border-2 border-[#54546c] bg-[#29293a] px-4 py-2 flex items-center gap-3.5 shadow">
-                <span className="text-zinc-300 uppercase tracking-widest text-[11px] font-black">CONTAINERS:</span>
-                <span className="font-black text-sky-400 text-base">{stats.containers}</span>
-              </div>
-            </div>
-
-            <div className="flex items-center gap-5">
-              <div className="relative flex items-center">
-                <Search className="w-4 h-4 absolute left-4 text-amber-400 pointer-events-none" />
-                <input style={{ color: "#ffffff" }} 
-                  type="text" 
-                  placeholder="SEARCH HOST / IP / MAC..."
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                  className="bg-[#14141b] border-2 border-[#54546c] hover:border-zinc-300 focus:border-amber-400 pl-11 pr-5 py-2.5 text-xs font-mono text-zinc-100 placeholder-zinc-400 focus:outline-none w-80 uppercase transition shadow-inner font-bold"
-                />
-              </div>
-              
-              {activeTab === 'subnets' ? (
-                <button 
-                  onClick={() => setIsSubnetModalOpen(true)}
-                  className="bg-amber-400 hover:bg-amber-300 active:bg-amber-500 text-zinc-950 font-mono font-black px-5 py-2.5 text-xs transition flex items-center gap-2.5 border-2 border-white uppercase tracking-wider shadow-md cursor-pointer"
-                >
-                  <Plus className="w-4 h-4 stroke-[3]" /> NEW_SUBNET
-                </button>
-              ) : (
-                <button 
-                  onClick={() => setIsHostModalOpen(true)}
-                  className="bg-amber-400 hover:bg-amber-300 active:bg-amber-500 text-zinc-950 font-mono font-black px-5 py-2.5 text-xs transition flex items-center gap-2.5 border-2 border-white uppercase tracking-wider shadow-md cursor-pointer"
-                >
-                  <Plus className="w-4 h-4 stroke-[3]" /> PROVISION_HOST
-                </button>
-              )}
-            </div>
-          </header>
-
-          {error && (
-            <div className="bg-red-950/80 border-b-2 border-red-600 px-10 py-3 text-xs font-mono text-red-200 flex items-center gap-3 font-bold">
-              <AlertCircle className="w-5 h-5 text-red-400" />
-              <span>[COMM_FAULT]: {error}</span>
             </div>
           )}
 
-          <main className="flex-1 flex overflow-hidden">
-            {/* TAB 1: ROSTER */}
+          {/* Primary Navigation */}
+          <div style={{ padding: '16px 10px 8px' }}>
+            {!sidebarCollapsed && (
+              <div
+                style={{
+                  padding: '0 10px 8px',
+                  fontSize: '10.5px',
+                  fontWeight: 600,
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.06em',
+                  color: 'var(--text-muted)'
+                }}
+              >
+                Inventory
+              </div>
+            )}
+            <nav style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
+              {[
+                { id: 'roster', label: 'Hosts & Nodes', icon: Server, count: hosts.length },
+                { id: 'subnets', label: 'Subnets & VLANs', icon: Layers, count: subnets.length },
+                { id: 'topology', label: 'Topology Tree', icon: Activity }
+              ].map((item) => {
+                const Icon = item.icon;
+                const isActive = activeTab === item.id;
+                return (
+                  <button
+                    key={item.id}
+                    type="button"
+                    onClick={() => {
+                      setActiveTab(item.id);
+                      setMobileSidebarOpen(false);
+                    }}
+                    title={sidebarCollapsed ? item.label : undefined}
+                    style={{
+                      width: '100%',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: sidebarCollapsed ? 'center' : 'space-between',
+                      padding: sidebarCollapsed ? '9px 0' : '8px 10px',
+                      borderRadius: '7px',
+                      border: 'none',
+                      backgroundColor: isActive ? 'var(--accent-soft)' : 'transparent',
+                      color: isActive ? '#ffffff' : 'var(--text-secondary)',
+                      fontSize: '12.5px',
+                      fontWeight: isActive ? 500 : 400,
+                      cursor: 'pointer',
+                      transition: 'background-color 0.12s ease, color 0.12s ease'
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px', minWidth: 0 }}>
+                      <Icon
+                        size={15}
+                        style={{
+                          color: isActive ? 'var(--accent-text)' : 'var(--text-muted)',
+                          flexShrink: 0
+                        }}
+                      />
+                      {!sidebarCollapsed && <span className="nd-truncate">{item.label}</span>}
+                    </div>
+                    {!sidebarCollapsed && item.count !== undefined && (
+                      <span
+                        style={{
+                          fontSize: '11px',
+                          fontFamily: 'monospace',
+                          padding: '1px 6px',
+                          borderRadius: '5px',
+                          backgroundColor: isActive
+                            ? 'rgba(99, 102, 241, 0.24)'
+                            : 'rgba(148, 163, 184, 0.08)',
+                          color: isActive ? 'var(--accent-text)' : 'var(--text-muted)'
+                        }}
+                      >
+                        {item.count}
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
+            </nav>
+          </div>
+
+          {/* Operations */}
+          <div style={{ padding: '16px 10px 8px' }}>
+            {!sidebarCollapsed && (
+              <div
+                style={{
+                  padding: '0 10px 8px',
+                  fontSize: '10.5px',
+                  fontWeight: 600,
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.06em',
+                  color: 'var(--text-muted)'
+                }}
+              >
+                Operations
+              </div>
+            )}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
+              <button
+                type="button"
+                onClick={handleDockerSync}
+                disabled={syncingDocker}
+                title={sidebarCollapsed ? 'Sync Docker Containers' : undefined}
+                style={{
+                  width: '100%',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: sidebarCollapsed ? 'center' : 'flex-start',
+                  gap: '10px',
+                  padding: sidebarCollapsed ? '9px 0' : '8px 10px',
+                  borderRadius: '7px',
+                  border: 'none',
+                  backgroundColor: 'transparent',
+                  color: 'var(--text-secondary)',
+                  fontSize: '12.5px',
+                  cursor: syncingDocker ? 'wait' : 'pointer'
+                }}
+              >
+                <RefreshCw
+                  size={15}
+                  className={syncingDocker ? 'animate-spin' : ''}
+                  style={{ color: 'var(--text-muted)', flexShrink: 0 }}
+                />
+                {!sidebarCollapsed && (
+                  <span className="nd-truncate">
+                    {syncingDocker ? 'Syncing Docker...' : 'Sync Docker'}
+                  </span>
+                )}
+              </button>
+
+              <button
+                type="button"
+                onClick={handleExport}
+                title={sidebarCollapsed ? 'Export JSON Backup' : undefined}
+                style={{
+                  width: '100%',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: sidebarCollapsed ? 'center' : 'flex-start',
+                  gap: '10px',
+                  padding: sidebarCollapsed ? '9px 0' : '8px 10px',
+                  borderRadius: '7px',
+                  border: 'none',
+                  backgroundColor: 'transparent',
+                  color: 'var(--text-secondary)',
+                  fontSize: '12.5px',
+                  cursor: 'pointer'
+                }}
+              >
+                <Download size={15} style={{ color: 'var(--text-muted)', flexShrink: 0 }} />
+                {!sidebarCollapsed && <span className="nd-truncate">Export JSON</span>}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                title={sidebarCollapsed ? 'Import JSON Backup' : undefined}
+                style={{
+                  width: '100%',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: sidebarCollapsed ? 'center' : 'flex-start',
+                  gap: '10px',
+                  padding: sidebarCollapsed ? '9px 0' : '8px 10px',
+                  borderRadius: '7px',
+                  border: 'none',
+                  backgroundColor: 'transparent',
+                  color: 'var(--text-secondary)',
+                  fontSize: '12.5px',
+                  cursor: 'pointer'
+                }}
+              >
+                <Upload size={15} style={{ color: 'var(--text-muted)', flexShrink: 0 }} />
+                {!sidebarCollapsed && <span className="nd-truncate">Import JSON</span>}
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* Sidebar Footer */}
+        <div
+          style={{
+            padding: '12px 10px',
+            borderTop: '1px solid var(--border-subtle)',
+            display: 'flex',
+            flexDirection: sidebarCollapsed ? 'column' : 'row',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: '8px'
+          }}
+        >
+          <button
+            type="button"
+            onClick={handleLogout}
+            title="Sign out"
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: sidebarCollapsed ? 'center' : 'flex-start',
+              gap: '8px',
+              padding: sidebarCollapsed ? '7px' : '7px 10px',
+              borderRadius: '6px',
+              border: 'none',
+              backgroundColor: 'transparent',
+              color: 'var(--text-secondary)',
+              fontSize: '12px',
+              cursor: 'pointer',
+              minWidth: 0
+            }}
+          >
+            <LogOut size={14} style={{ flexShrink: 0 }} />
+            {!sidebarCollapsed && <span className="nd-truncate">Sign out</span>}
+          </button>
+
+          <button
+            type="button"
+            onClick={() => fetchData()}
+            title="Refresh telemetry"
+            style={{
+              background: 'transparent',
+              border: '1px solid var(--border-subtle)',
+              color: 'var(--text-secondary)',
+              padding: '6px',
+              borderRadius: '6px',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              flexShrink: 0
+            }}
+          >
+            <RefreshCw size={13} className={loading ? 'animate-spin' : ''} />
+          </button>
+        </div>
+      </aside>
+
+      {/* CENTER + RIGHT AREA */}
+      <div className="nd-main-wrapper">
+        {/* Workspace Header */}
+        <header className="nd-header">
+          <div style={{ display: 'flex', alignItems: 'center', gap: '14px', minWidth: 0 }}>
+            <button
+              type="button"
+              onClick={() => setMobileSidebarOpen(true)}
+              className="md:hidden"
+              style={{
+                background: 'var(--bg-surface)',
+                border: '1px solid var(--border-subtle)',
+                color: 'var(--text-primary)',
+                padding: '6px',
+                borderRadius: '6px',
+                cursor: 'pointer'
+              }}
+            >
+              <Menu size={16} />
+            </button>
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', minWidth: 0 }}>
+              <h1
+                className="nd-truncate"
+                style={{
+                  margin: 0,
+                  fontSize: '15px',
+                  fontWeight: 600,
+                  color: 'var(--text-primary)',
+                  letterSpacing: '-0.01em'
+                }}
+              >
+                {activeTab === 'roster'
+                  ? 'Hosts & Workloads'
+                  : activeTab === 'subnets'
+                  ? 'Subnets & VLANs'
+                  : 'Network Topology'}
+              </h1>
+
+              {/* Telemetry Summary Badges */}
+              <div
+                className="hidden lg:flex"
+                style={{
+                  alignItems: 'center',
+                  gap: '10px',
+                  paddingLeft: '12px',
+                  borderLeft: '1px solid var(--border-subtle)',
+                  fontSize: '12px',
+                  color: 'var(--text-secondary)'
+                }}
+              >
+                <span>
+                  <strong style={{ color: 'var(--text-primary)', fontFamily: 'monospace' }}>
+                    {stats.total}
+                  </strong>{' '}
+                  Total
+                </span>
+                <span style={{ color: 'var(--border-strong)' }}>·</span>
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: '5px' }}>
+                  <span
+                    style={{
+                      width: '6px',
+                      height: '6px',
+                      borderRadius: '50%',
+                      backgroundColor: 'var(--status-emerald)'
+                    }}
+                  />
+                  <strong style={{ color: 'var(--text-primary)', fontFamily: 'monospace' }}>
+                    {stats.active}
+                  </strong>{' '}
+                  Active
+                </span>
+                <span style={{ color: 'var(--border-strong)' }}>·</span>
+                <span>
+                  <strong style={{ color: 'var(--text-primary)', fontFamily: 'monospace' }}>
+                    {stats.containers}
+                  </strong>{' '}
+                  Containers
+                </span>
+              </div>
+            </div>
+          </div>
+
+          {/* Search, Filter & Primary Action */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexShrink: 0 }}>
+            {notice && (
+              <div
+                className="hidden xl:flex"
+                style={{
+                  alignItems: 'center',
+                  gap: '6px',
+                  fontSize: '12px',
+                  padding: '5px 10px',
+                  borderRadius: '6px',
+                  backgroundColor: 'var(--status-emerald-soft)',
+                  border: '1px solid rgba(16, 185, 129, 0.3)',
+                  color: '#6ee7b7'
+                }}
+              >
+                <Check size={13} />
+                <span>{notice}</span>
+              </div>
+            )}
+
             {activeTab === 'roster' && (
               <>
-                <div className="flex-1 overflow-y-auto border-r-2 border-[#54546c] p-10 space-y-6 bg-[#14141b]">
-                  <div className="border-b-2 border-[#54546c] pb-4 flex justify-between items-end">
-                    <div>
-                      <h1 className="text-base font-mono font-black uppercase tracking-wider text-amber-400">// REGISTERED_HOSTS [{filteredHosts.length}]</h1>
-                      <p className="text-xs text-zinc-300 mt-1.5 font-medium">
-                        Managed bare-metal hypervisors, virtualization nodes, and container runtimes.
-                      </p>
-                    </div>
-                  </div>
-
-                  {filteredHosts.length === 0 && !loading && (
-                    <div className="text-xs font-mono text-zinc-200 p-12 border-2 border-dashed border-[#54546c] bg-[#1d1d28] text-center font-bold">
-                      NO HOSTS REGISTERED. USE [PROVISION_HOST] OR [SYNC_DOCKER] TO POPULATE.
-                    </div>
-                  )}
-
-                  <div className="space-y-4">
-              {/* Tiered Hardware and Virtual Workloads */}
-              <div className="space-y-6">
-                {/* 01 Physical Hardware */}
-                <div className="space-y-3">
-                  <div className="flex items-center justify-between border-b border-[#3e3e54] pb-2">
-                    <span className="font-mono text-xs font-black text-amber-300 uppercase tracking-widest">
-                      // [01] PHYSICAL_HARDWARE ({filteredHosts.filter(host => ["bare-metal", "server", "switch", "sbc"].includes((host.device_type || "").toLowerCase())).length})
-                    </span>
-                  </div>
-                  {filteredHosts.filter(host => ["bare-metal", "server", "switch", "sbc"].includes((host.device_type || "").toLowerCase())).length === 0 ? (
-                    <div className="text-xs font-mono text-zinc-400 p-3 border border-dashed border-[#44445c] bg-[#181822] text-center">
-                      NO PHYSICAL HOSTS RECORDED
-                    </div>
-                  ) : (
-                    filteredHosts.filter(host => ["bare-metal", "server", "switch", "sbc"].includes((host.device_type || "").toLowerCase())).map(host => (
-                      <div
-                        key={host.id}
-                        onClick={() => setSelectedHostId(host.id)}
-                        className={`p-5 border-2 transition cursor-pointer select-none ${
-                          host.id === activeHost?.id 
-                            ? 'border-amber-400 bg-[#292938] shadow-xl ring-2 ring-amber-400/50' 
-                            : 'border-[#4e4e66] bg-[#1d1d28] hover:border-amber-400 hover:bg-[#252534]'
-                        }`}
-                      >
-                        <div className="flex items-center justify-between">
-                          <div className="font-mono text-xs text-zinc-100 flex items-center gap-3">
-                            <span className={`w-3 h-3 ${host.status === 'active' ? 'bg-amber-400 shadow-[0_0_10px_rgba(251,191,36,0.9)]' : 'bg-red-500'}`} />
-                            <span className="font-black tracking-wide text-base">{host.hostname}</span>
-                          </div>
-                          <span className="text-sm font-mono text-amber-300 font-black px-3 py-1 bg-[#121218] border-2 border-[#54546c]">
-                            {host.ip}
-                          </span>
-                        </div>
-                        <div className="flex items-center gap-5 mt-4 text-xs font-mono">
-                          <span className="border-2 border-[#62627e] bg-[#2d2d3e] px-2.5 py-0.5 text-zinc-100 uppercase font-black">
-                            {host.device_type}
-                          </span>
-                          <span className="text-zinc-300 font-bold">{host.mac || 'NO_MAC_LOGGED'}</span>
-                        </div>
-                      </div>
-
-                    ))
-                  )}
+                {/* Category Filter Segmented Control */}
+                <div
+                  className="hidden sm:flex"
+                  style={{
+                    backgroundColor: 'var(--bg-input)',
+                    border: '1px solid var(--border-subtle)',
+                    borderRadius: '7px',
+                    padding: '2px'
+                  }}
+                >
+                  {[
+                    { id: 'all', label: 'All' },
+                    { id: 'physical', label: 'Physical' },
+                    { id: 'virtual', label: 'Virtual' }
+                  ].map((tab) => (
+                    <button
+                      key={tab.id}
+                      type="button"
+                      onClick={() => setCategoryFilter(tab.id)}
+                      style={{
+                        border: 'none',
+                        padding: '4px 9px',
+                        borderRadius: '5px',
+                        fontSize: '11.5px',
+                        fontWeight: 500,
+                        cursor: 'pointer',
+                        backgroundColor:
+                          categoryFilter === tab.id ? 'var(--bg-elevated)' : 'transparent',
+                        color:
+                          categoryFilter === tab.id
+                            ? 'var(--text-primary)'
+                            : 'var(--text-muted)'
+                      }}
+                    >
+                      {tab.label}
+                    </button>
+                  ))}
                 </div>
 
-                {/* 02 Virtual & Container Workloads */}
-                <div className="space-y-3">
-                  <div className="flex items-center justify-between border-b border-[#3e3e54] pb-2">
-                    <span className="font-mono text-xs font-black text-sky-400 uppercase tracking-widest">
-                      // [02] VIRTUAL_WORKLOADS & CONTAINERS ({filteredHosts.filter(host => !["bare-metal", "server", "switch", "sbc"].includes((host.device_type || "").toLowerCase())).length})
-                    </span>
-                  </div>
-                  {filteredHosts.filter(host => !["bare-metal", "server", "switch", "sbc"].includes((host.device_type || "").toLowerCase())).length === 0 ? (
-                    <div className="text-xs font-mono text-zinc-400 p-3 border border-dashed border-[#44445c] bg-[#181822] text-center">
-                      NO VIRTUAL WORKLOADS RECORDED
-                    </div>
-                  ) : (
-                    filteredHosts.filter(host => !["bare-metal", "server", "switch", "sbc"].includes((host.device_type || "").toLowerCase())).map(host => (
-                      <div
-                        key={host.id}
-                        onClick={() => setSelectedHostId(host.id)}
-                        className={`p-5 border-2 transition cursor-pointer select-none ${
-                          host.id === activeHost?.id 
-                            ? 'border-amber-400 bg-[#292938] shadow-xl ring-2 ring-amber-400/50' 
-                            : 'border-[#4e4e66] bg-[#1d1d28] hover:border-amber-400 hover:bg-[#252534]'
-                        }`}
-                      >
-                        <div className="flex items-center justify-between">
-                          <div className="font-mono text-xs text-zinc-100 flex items-center gap-3">
-                            <span className={`w-3 h-3 ${host.status === 'active' ? 'bg-amber-400 shadow-[0_0_10px_rgba(251,191,36,0.9)]' : 'bg-red-500'}`} />
-                            <span className="font-black tracking-wide text-base">{host.hostname}</span>
-                          </div>
-                          <span className="text-sm font-mono text-amber-300 font-black px-3 py-1 bg-[#121218] border-2 border-[#54546c]">
-                            {host.ip}
-                          </span>
-                        </div>
-                        <div className="flex items-center gap-5 mt-4 text-xs font-mono">
-                          <span className="border-2 border-[#62627e] bg-[#2d2d3e] px-2.5 py-0.5 text-zinc-100 uppercase font-black">
-                            {host.device_type}
-                          </span>
-                          <span className="text-zinc-300 font-bold">{host.mac || 'NO_MAC_LOGGED'}</span>
-                        </div>
-                      </div>
-
-                    ))
-                  )}
-                </div>
-              </div>
-                  </div>
-                </div>
-
-                {/* Host Inspector Drawer */}
-                <div className="w-[540px] bg-[#1b1b24] overflow-y-auto p-10 space-y-8 border-l-2 border-[#54546c]">
-                  {activeHost ? (
-                    <>
-                      <div className="flex items-start justify-between border-b-2 border-[#54546c] pb-5">
-                        <div>
-                          <h2 className="text-xl font-mono font-black text-amber-300">&gt; {activeHost.hostname}</h2>
-                          <p className="text-xs text-zinc-300 font-mono mt-1 font-bold">KERNEL: {activeHost.os}</p>
-                        </div>
-                        <div className="flex items-center gap-3">
-                          <span className="text-xs font-mono border-2 border-amber-400 bg-amber-400/20 text-amber-300 px-3 py-1 uppercase tracking-wider font-black">
-                            {activeHost.status}
-                          </span>
-                          <button 
-                            onClick={() => handleDeleteHost(activeHost.id)}
-                            className="p-2 text-zinc-300 hover:text-red-300 hover:bg-red-950/60 border-2 border-[#54546c] hover:border-red-500 transition cursor-pointer"
-                            title="Drop Host"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
-                        </div>
-                      </div>
-
-                      <div className="grid grid-cols-2 gap-4 text-xs font-mono">
-                        <div className="border-2 border-[#54546c] p-4 bg-[#232330] shadow">
-                          <span className="text-zinc-300 block text-[11px] uppercase font-black tracking-wider">// IP_ADDRESS</span>
-                          <span className="text-amber-400 font-black text-base mt-1.5 block">{activeHost.ip}</span>
-                        </div>
-                        <div className="border-2 border-[#54546c] p-4 bg-[#232330] shadow">
-                          <span className="text-zinc-300 block text-[11px] uppercase font-black tracking-wider">// MAC_ADDRESS</span>
-                          <span className="text-zinc-100 text-xs mt-1.5 block font-bold">{activeHost.mac || 'N/A'}</span>
-                        </div>
-                        <div className="border-2 border-[#54546c] p-4 bg-[#232330] shadow">
-                          <span className="text-zinc-300 block text-[11px] uppercase font-black tracking-wider">// SUBNET</span>
-                          <span className="text-zinc-100 text-xs mt-1.5 block truncate font-black">
-                            {subnets.find(s => s.id === activeHost.subnet_id)?.name || activeHost.subnet_id}
-                          </span>
-                        </div>
-                        <div className="border-2 border-[#54546c] p-4 bg-[#232330] shadow">
-                          <span className="text-zinc-300 block text-[11px] uppercase font-black tracking-wider">// PARENT_HOST</span>
-                          <span className="text-zinc-100 text-xs mt-1.5 block font-black">{activeHost.parent_id || 'STANDALONE'}</span>
-                        </div>
-                      </div>
-
-                      <div className="space-y-4 pt-2">
-                        <div className="flex items-center justify-between border-b-2 border-[#54546c] pb-3">
-                          <span className="text-xs font-mono font-black uppercase tracking-wider text-amber-300">
-                            // RUNBOOK_NOTES
-                          </span>
-                          {!isEditingNotes ? (
-                            <button 
-                              onClick={() => setIsEditingNotes(true)}
-                              className="text-xs font-mono text-amber-300 hover:text-amber-200 hover:underline flex items-center gap-1.5 font-black cursor-pointer bg-[#292938] px-3 py-1 border border-[#54546c]"
-                            >
-                              <Edit3 className="w-3.5 h-3.5" /> [EDIT]
-                            </button>
-                          ) : (
-                            <div className="flex gap-3 text-xs font-mono">
-                              <button onClick={handleSaveNotes} className="text-zinc-950 font-black bg-white hover:bg-amber-300 px-3 py-1 border border-white cursor-pointer">
-                                [SAVE]
-                              </button>
-                              <button onClick={() => setIsEditingNotes(false)} className="text-white hover:bg-zinc-800 px-3 py-1 border border-zinc-600 cursor-pointer">
-                                [CANCEL]
-                              </button>
-                            </div>
-                          )}
-                        </div>
-
-                        {isEditingNotes ? (
-                          <textarea
-                            rows={12}
-                            value={editedNotes}
-                            onChange={(e) => setEditedNotes(e.target.value)}
-                            placeholder="INPUT SYSTEM CONFIGURATION, EXPOSED PORTS, OR WORKLOAD RUNBOOKS..."
-                            className="w-full bg-[#14141b] border-2 border-amber-400 p-4 text-xs font-mono text-zinc-100 focus:outline-none focus:border-amber-300 leading-relaxed shadow-inner font-medium"
-                          />
-                        ) : (
-                          <div className="text-xs font-mono bg-[#232330] p-5 border-2 border-[#54546c] text-zinc-100 whitespace-pre-wrap leading-relaxed min-h-[170px] shadow font-medium">
-                            {activeHost.notes || 'NO DOCUMENTATION RECORDED. CLICK [EDIT] TO ADD SYSTEM NOTES.'}
-                          </div>
-                        )}
-                      </div>
-                    </>
-                  ) : (
-                    <div className="text-xs font-mono text-zinc-300">SELECT A HOST TO INSPECT ATTRIBUTES.</div>
+                {/* Search Box */}
+                <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+                  <Search
+                    size={14}
+                    style={{
+                      position: 'absolute',
+                      left: '10px',
+                      color: 'var(--text-muted)',
+                      pointerEvents: 'none'
+                    }}
+                  />
+                  <input
+                    type="text"
+                    placeholder="Search host, IP, MAC..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className="nd-input"
+                    style={{
+                      paddingLeft: '30px',
+                      paddingRight: searchQuery ? '26px' : '10px',
+                      paddingTop: '6px',
+                      paddingBottom: '6px',
+                      width: '200px'
+                    }}
+                  />
+                  {searchQuery && (
+                    <button
+                      type="button"
+                      onClick={() => setSearchQuery('')}
+                      style={{
+                        position: 'absolute',
+                        right: '8px',
+                        background: 'transparent',
+                        border: 'none',
+                        color: 'var(--text-muted)',
+                        cursor: 'pointer',
+                        display: 'flex'
+                      }}
+                    >
+                      <X size={13} />
+                    </button>
                   )}
                 </div>
               </>
             )}
 
-            {/* TAB 2: SUBNETS */}
-            {activeTab === 'subnets' && (
-              <div className="p-10 space-y-7 flex-1 overflow-y-auto bg-[#14141b]">
-                <div className="border-b-2 border-[#54546c] pb-4">
-                  <h1 className="text-base font-mono font-black uppercase tracking-wider text-amber-400">// CONFIGURED_SUBNETS</h1>
-                  <p className="text-xs text-zinc-300 mt-1.5 font-medium">
-                    Private broadcast domains, router gateways, and VLAN boundaries.
-                  </p>
-                </div>
+            {activeTab === 'subnets' ? (
+              <button
+                type="button"
+                onClick={() => setShowSubnetModal(true)}
+                className="nd-btn-primary"
+              >
+                <Plus size={15} />
+                <span>New Subnet</span>
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={() => {
+                  if (!newHost.subnet_id && subnets.length > 0) {
+                    setNewHost((prev) => ({ ...prev, subnet_id: subnets[0].id }));
+                  }
+                  setShowHostModal(true);
+                }}
+                className="nd-btn-primary"
+              >
+                <Plus size={15} />
+                <span>Add Host</span>
+              </button>
+            )}
+          </div>
+        </header>
 
-                <div className="grid gap-5">
-                  {subnets.map(s => {
-                    const assigned = hosts.filter(h => h.subnet_id === s.id).length;
-                    return (
-                      <div key={s.id} className="p-6 bg-[#1d1d28] border-2 border-[#54546c] hover:border-amber-400 hover:bg-[#252534] transition shadow">
-                        <div className="flex justify-between items-center mb-3">
-                          <div className="flex items-center gap-4">
-                            <span className="font-mono font-black text-base text-zinc-100">&gt; {s.name}</span>
-                            <span className="text-xs font-mono border-2 border-sky-400 bg-sky-400/20 text-sky-200 px-3 py-0.5 uppercase font-black">
-                              VLAN_{s.vlan}
+        {error && (
+          <div
+            style={{
+              backgroundColor: 'var(--status-rose-soft)',
+              borderBottom: '1px solid rgba(244, 63, 94, 0.3)',
+              padding: '9px 24px',
+              fontSize: '12.5px',
+              color: '#fda4af',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: '12px',
+              flexShrink: 0
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0 }}>
+              <AlertCircle size={15} style={{ flexShrink: 0 }} />
+              <span className="nd-break-words">{error}</span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setError(null)}
+              style={{
+                background: 'transparent',
+                border: 'none',
+                color: '#fda4af',
+                cursor: 'pointer',
+                display: 'flex'
+              }}
+            >
+              <X size={15} />
+            </button>
+          </div>
+        )}
+
+        {/* THREE-PANEL BODY: Center Workspace + Right Details Panel */}
+        <main className="nd-workspace-body">
+          {activeTab === 'roster' && (
+            <>
+              {/* CENTER PANEL: Host & Container List */}
+              <div className="nd-center-canvas">
+                {filteredHosts.length === 0 && !loading ? (
+                  <div
+                    style={{
+                      maxWidth: '460px',
+                      margin: '48px auto',
+                      padding: '36px 24px',
+                      textAlign: 'center',
+                      backgroundColor: 'var(--bg-surface)',
+                      border: '1px dashed var(--border-strong)',
+                      borderRadius: '12px'
+                    }}
+                  >
+                    <Server
+                      size={28}
+                      style={{ color: 'var(--accent-text)', margin: '0 auto 12px' }}
+                    />
+                    <h3
+                      style={{
+                        margin: '0 0 6px',
+                        fontSize: '14px',
+                        fontWeight: 600,
+                        color: 'var(--text-primary)'
+                      }}
+                    >
+                      No matching hosts found
+                    </h3>
+                    <p
+                      style={{
+                        margin: '0 0 18px',
+                        fontSize: '12.5px',
+                        color: 'var(--text-secondary)',
+                        lineHeight: 1.5
+                      }}
+                    >
+                      Provision a physical or virtual host manually, or synchronize active
+                      containers from the local Docker socket.
+                    </p>
+                    <div style={{ display: 'flex', justifyContent: 'center', gap: '10px' }}>
+                      <button
+                        type="button"
+                        onClick={() => setShowHostModal(true)}
+                        className="nd-btn-primary"
+                      >
+                        <Plus size={14} />
+                        <span>Add Host</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleDockerSync}
+                        className="nd-btn-secondary"
+                      >
+                        <RefreshCw size={14} />
+                        <span>Sync Docker</span>
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <div>
+                    {(categoryFilter === 'all' || categoryFilter === 'physical') &&
+                      renderHostSection(
+                        'Physical Infrastructure',
+                        'Bare-metal servers, switches, and SBC appliances',
+                        physicalHosts,
+                        'No physical hardware registered.'
+                      )}
+
+                    {(categoryFilter === 'all' || categoryFilter === 'virtual') &&
+                      renderHostSection(
+                        'Virtual Workloads & Containers',
+                        'Docker containers and virtual machines',
+                        virtualHosts,
+                        'No virtual workloads or containers recorded.'
+                      )}
+                  </div>
+                )}
+              </div>
+
+              {/* RIGHT PANEL: Host Details Inspector */}
+              <aside
+                className={`nd-inspector-panel ${
+                  !mobileInspectorOpen ? 'is-hidden-mobile' : ''
+                }`}
+              >
+                {selectedHost ? (
+                  <div style={{ padding: '22px 20px', display: 'flex', flexDirection: 'column', gap: '22px' }}>
+                    {/* 1. Overview Header */}
+                    <div
+                      style={{
+                        paddingBottom: '16px',
+                        borderBottom: '1px solid var(--border-subtle)'
+                      }}
+                    >
+                      <div
+                        style={{
+                          display: 'flex',
+                          alignItems: 'flex-start',
+                          justifyContent: 'space-between',
+                          gap: '10px'
+                        }}
+                      >
+                        <div style={{ minWidth: 0, flex: 1 }}>
+                          <div
+                            style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '8px',
+                              marginBottom: '6px',
+                              flexWrap: 'wrap'
+                            }}
+                          >
+                            <span
+                              style={{
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '5px',
+                                fontSize: '11px',
+                                fontWeight: 600,
+                                textTransform: 'uppercase',
+                                letterSpacing: '0.04em',
+                                padding: '2px 8px',
+                                borderRadius: '999px',
+                                backgroundColor:
+                                  selectedHost.status === 'active'
+                                    ? 'var(--status-emerald-soft)'
+                                    : 'var(--status-rose-soft)',
+                                color:
+                                  selectedHost.status === 'active' ? '#34d399' : '#fb7185'
+                              }}
+                            >
+                              <span
+                                style={{
+                                  width: '6px',
+                                  height: '6px',
+                                  borderRadius: '50%',
+                                  backgroundColor:
+                                    selectedHost.status === 'active'
+                                      ? 'var(--status-emerald)'
+                                      : 'var(--status-rose)'
+                                }}
+                              />
+                              {selectedHost.status}
+                            </span>
+
+                            <span
+                              style={{
+                                fontSize: '11px',
+                                fontWeight: 500,
+                                textTransform: 'capitalize',
+                                padding: '2px 8px',
+                                borderRadius: '999px',
+                                backgroundColor: 'var(--accent-soft)',
+                                color: 'var(--accent-text)'
+                              }}
+                            >
+                              {selectedHost.device_type}
                             </span>
                           </div>
-                          <div className="flex items-center gap-5">
-                            <span className="text-sm font-mono text-amber-300 font-black bg-[#121218] px-3.5 py-1.5 border-2 border-[#54546c]">{s.cidr}</span>
+
+                          <h2
+                            className="nd-break-words"
+                            style={{
+                              margin: 0,
+                              fontSize: '17px',
+                              fontWeight: 600,
+                              color: '#ffffff',
+                              lineHeight: 1.3
+                            }}
+                          >
+                            {selectedHost.hostname}
+                          </h2>
+                          <p
+                            className="nd-break-words"
+                            style={{
+                              margin: '4px 0 0',
+                              fontSize: '12px',
+                              color: 'var(--text-secondary)'
+                            }}
+                          >
+                            {selectedHost.os || 'Linux System'}
+                          </p>
+                        </div>
+
+                        {/* Close button on tablet/mobile overlay */}
+                        <button
+                          type="button"
+                          onClick={() => setMobileInspectorOpen(false)}
+                          className="xl:hidden"
+                          style={{
+                            background: 'var(--bg-surface)',
+                            border: '1px solid var(--border-subtle)',
+                            color: 'var(--text-secondary)',
+                            padding: '5px',
+                            borderRadius: '6px',
+                            cursor: 'pointer',
+                            flexShrink: 0
+                          }}
+                          title="Close inspector"
+                        >
+                          <X size={15} />
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* 2. Network & System Specifications */}
+                    <div>
+                      <div
+                        style={{
+                          fontSize: '11px',
+                          fontWeight: 600,
+                          textTransform: 'uppercase',
+                          letterSpacing: '0.06em',
+                          color: 'var(--text-muted)',
+                          marginBottom: '8px'
+                        }}
+                      >
+                        Network & Specifications
+                      </div>
+
+                      <div className="nd-spec-list">
+                        <div className="nd-spec-row">
+                          <span className="nd-spec-label">IPv4 Address</span>
+                          <div className="nd-spec-value">
+                            <span style={{ fontFamily: 'monospace', fontWeight: 600 }}>
+                              {selectedHost.ip}
+                            </span>
                             <button
-                              onClick={() => handleDeleteSubnet(s)}
-                              className="p-2 text-zinc-300 hover:text-red-300 hover:bg-red-950/60 border-2 border-[#54546c] hover:border-red-500 transition cursor-pointer"
-                              title="Drop Subnet"
+                              type="button"
+                              onClick={() => copyToClipboard(selectedHost.ip, 'ip')}
+                              title="Copy IP"
+                              style={{
+                                background: 'transparent',
+                                border: 'none',
+                                color:
+                                  copiedField === 'ip'
+                                    ? 'var(--status-emerald)'
+                                    : 'var(--text-muted)',
+                                cursor: 'pointer',
+                                padding: '2px',
+                                display: 'flex',
+                                flexShrink: 0
+                              }}
                             >
-                              <Trash2 className="w-4 h-4" />
+                              {copiedField === 'ip' ? <Check size={13} /> : <Copy size={13} />}
                             </button>
                           </div>
                         </div>
-                        <div className="text-xs font-mono text-zinc-200 mt-3 font-semibold">
-                          GATEWAY: <span className="text-white font-black">{s.gateway}</span>
+
+                        <div className="nd-spec-row">
+                          <span className="nd-spec-label">MAC Address</span>
+                          <div className="nd-spec-value">
+                            <span
+                              style={{
+                                fontFamily: 'monospace',
+                                color: selectedHost.mac
+                                  ? 'var(--text-primary)'
+                                  : 'var(--text-muted)'
+                              }}
+                            >
+                              {selectedHost.mac || 'Not recorded'}
+                            </span>
+                            {selectedHost.mac && (
+                              <button
+                                type="button"
+                                onClick={() => copyToClipboard(selectedHost.mac, 'mac')}
+                                title="Copy MAC"
+                                style={{
+                                  background: 'transparent',
+                                  border: 'none',
+                                  color:
+                                    copiedField === 'mac'
+                                      ? 'var(--status-emerald)'
+                                      : 'var(--text-muted)',
+                                  cursor: 'pointer',
+                                  padding: '2px',
+                                  display: 'flex',
+                                  flexShrink: 0
+                                }}
+                              >
+                                {copiedField === 'mac' ? <Check size={13} /> : <Copy size={13} />}
+                              </button>
+                            )}
+                          </div>
                         </div>
-                        <div className="text-xs font-mono text-zinc-300 mt-1.5 font-semibold">
-                          ALLOCATED_HOSTS: <span className={assigned > 0 ? "text-amber-300 font-black" : "text-zinc-400"}>{assigned}</span>
+
+                        <div className="nd-spec-row">
+                          <span className="nd-spec-label">Device Class</span>
+                          <div className="nd-spec-value" style={{ textTransform: 'capitalize' }}>
+                            {selectedHost.device_type}
+                          </div>
+                        </div>
+
+                        <div className="nd-spec-row">
+                          <span className="nd-spec-label">OS / Kernel</span>
+                          <div className="nd-spec-value">
+                            {selectedHost.os || 'Linux'}
+                          </div>
                         </div>
                       </div>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
+                    </div>
 
-            {/* TAB 3: TOPOLOGY */}
-            {activeTab === 'topology' && (
-              <div className="p-10 space-y-7 flex-1 overflow-y-auto bg-[#14141b]">
-                <div className="border-b-2 border-[#54546c] pb-4">
-                  <h1 className="text-base font-mono font-black uppercase tracking-wider text-amber-400">// TOPOLOGY_TREE</h1>
-                  <p className="text-xs text-zinc-300 mt-1.5 font-medium">
-                    Hierarchical structure of hypervisors, physical nodes, and containerized runtimes.
+                    {/* 3. Subnet & Hierarchy Information */}
+                    <div>
+                      <div
+                        style={{
+                          fontSize: '11px',
+                          fontWeight: 600,
+                          textTransform: 'uppercase',
+                          letterSpacing: '0.06em',
+                          color: 'var(--text-muted)',
+                          marginBottom: '8px'
+                        }}
+                      >
+                        Subnet & Topology
+                      </div>
+
+                      <div className="nd-spec-list">
+                        <div className="nd-spec-row">
+                          <span className="nd-spec-label">Subnet</span>
+                          <div className="nd-spec-value">
+                            {selectedSubnet ? selectedSubnet.name : selectedHost.subnet_id || '—'}
+                          </div>
+                        </div>
+
+                        {selectedSubnet && (
+                          <>
+                            <div className="nd-spec-row">
+                              <span className="nd-spec-label">CIDR / VLAN</span>
+                              <div className="nd-spec-value" style={{ fontFamily: 'monospace' }}>
+                                {selectedSubnet.cidr} · VLAN {selectedSubnet.vlan}
+                              </div>
+                            </div>
+                            <div className="nd-spec-row">
+                              <span className="nd-spec-label">Gateway</span>
+                              <div className="nd-spec-value" style={{ fontFamily: 'monospace' }}>
+                                {selectedSubnet.gateway}
+                              </div>
+                            </div>
+                          </>
+                        )}
+
+                        <div className="nd-spec-row">
+                          <span className="nd-spec-label">Parent Node</span>
+                          <div className="nd-spec-value">
+                            {selectedParent ? (
+                              <button
+                                type="button"
+                                onClick={() => setSelectedHostId(selectedParent.id)}
+                                style={{
+                                  background: 'var(--accent-soft)',
+                                  border: '1px solid rgba(99, 102, 241, 0.3)',
+                                  color: 'var(--accent-text)',
+                                  padding: '2px 8px',
+                                  borderRadius: '5px',
+                                  fontSize: '12px',
+                                  cursor: 'pointer',
+                                  maxWidth: '100%',
+                                  overflow: 'hidden',
+                                  textOverflow: 'ellipsis',
+                                  whiteSpace: 'nowrap'
+                                }}
+                              >
+                                {selectedParent.hostname}
+                              </button>
+                            ) : (
+                              <span style={{ color: 'var(--text-secondary)' }}>
+                                Standalone Node
+                              </span>
+                            )}
+                          </div>
+                        </div>
+
+                        {hostedChildrenCount > 0 && (
+                          <div className="nd-spec-row">
+                            <span className="nd-spec-label">Child Workloads</span>
+                            <div className="nd-spec-value">
+                              <span style={{ fontFamily: 'monospace', color: 'var(--accent-text)' }}>
+                                {hostedChildrenCount} hosted
+                              </span>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* 4. Runbook & Notes */}
+                    <div>
+                      <div
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                          marginBottom: '8px'
+                        }}
+                      >
+                        <span
+                          style={{
+                            fontSize: '11px',
+                            fontWeight: 600,
+                            textTransform: 'uppercase',
+                            letterSpacing: '0.06em',
+                            color: 'var(--text-muted)'
+                          }}
+                        >
+                          Runbook & Notes
+                        </span>
+
+                        {editingNotes ? (
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                            <button
+                              type="button"
+                              onClick={() => setEditingNotes(false)}
+                              className="nd-btn-secondary"
+                              style={{ padding: '3px 8px', fontSize: '11.5px' }}
+                            >
+                              Cancel
+                            </button>
+                            <button
+                              type="button"
+                              onClick={handleSaveNotes}
+                              className="nd-btn-primary"
+                              style={{ padding: '3px 10px', fontSize: '11.5px' }}
+                            >
+                              Save
+                            </button>
+                          </div>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => setEditingNotes(true)}
+                            className="nd-btn-secondary"
+                            style={{ padding: '3px 8px', fontSize: '11.5px' }}
+                          >
+                            <Edit3 size={12} />
+                            <span>Edit</span>
+                          </button>
+                        )}
+                      </div>
+
+                      {editingNotes ? (
+                        <textarea
+                          rows={7}
+                          value={notesDraft}
+                          onChange={(e) => setNotesDraft(e.target.value)}
+                          placeholder="Document exposed ports, reverse proxy routes, or maintenance steps..."
+                          className="nd-input"
+                          style={{
+                            fontFamily: 'monospace',
+                            lineHeight: 1.55,
+                            resize: 'vertical'
+                          }}
+                        />
+                      ) : (
+                        <div
+                          onClick={() => setEditingNotes(true)}
+                          className="nd-break-words"
+                          style={{
+                            backgroundColor: 'var(--bg-surface)',
+                            border: '1px solid var(--border-subtle)',
+                            borderRadius: '8px',
+                            padding: '12px 14px',
+                            fontSize: '12px',
+                            fontFamily: selectedHost.notes ? 'monospace' : 'inherit',
+                            color: selectedHost.notes
+                              ? 'var(--text-primary)'
+                              : 'var(--text-muted)',
+                            whiteSpace: 'pre-wrap',
+                            lineHeight: 1.55,
+                            minHeight: '104px',
+                            cursor: 'text'
+                          }}
+                        >
+                          {selectedHost.notes ||
+                            'No runbook notes recorded. Click Edit to document ports, services, or configuration details.'}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* 5. Available Actions */}
+                    <div
+                      style={{
+                        paddingTop: '14px',
+                        borderTop: '1px solid var(--border-subtle)',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: '8px'
+                      }}
+                    >
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteHost(selectedHost.id)}
+                        className="nd-btn-danger"
+                        style={{ width: '100%' }}
+                      >
+                        <Trash2 size={14} />
+                        <span>Remove Host from Inventory</span>
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <div
+                    style={{
+                      padding: '48px 24px',
+                      textAlign: 'center',
+                      color: 'var(--text-muted)',
+                      fontSize: '12.5px'
+                    }}
+                  >
+                    Select a host or container from the list to inspect its specifications.
+                  </div>
+                )}
+              </aside>
+            </>
+          )}
+
+          {/* SUBNETS VIEW */}
+          {activeTab === 'subnets' && (
+            <div className="nd-center-canvas">
+              <div style={{ maxWidth: '960px' }}>
+                <div style={{ marginBottom: '18px' }}>
+                  <h2 style={{ margin: 0, fontSize: '14px', fontWeight: 600 }}>
+                    Configured Broadcast Domains
+                  </h2>
+                  <p style={{ margin: '4px 0 0', fontSize: '12.5px', color: 'var(--text-secondary)' }}>
+                    Private RFC1918 networks, default router gateways, and VLAN boundaries.
                   </p>
                 </div>
 
-                <div className="space-y-6 font-mono">
-                  {hosts.filter(h => !h.parent_id).map(parent => (
-                    <div key={parent.id} className="border-2 border-[#54546c] bg-[#1d1d28] p-6 shadow-md">
-                      <div className="flex items-center gap-3.5 font-black text-sm text-amber-300">
-                        <Server className="w-5 h-5 text-amber-400" />
-                        <span className="text-base text-zinc-100">{parent.hostname}</span>
-                        <span className="text-zinc-300 font-bold text-xs">[{parent.ip}] ({parent.device_type.toUpperCase()})</span>
-                      </div>
-                      <div className="ml-6 mt-5 border-l-4 border-[#54546c] pl-6 space-y-3.5">
-                        {hosts.filter(h => h.parent_id === parent.id).map(child => (
-                          <div key={child.id} className="text-xs flex items-center gap-3.5 text-zinc-200 bg-[#242432] p-3 border-2 border-[#4e4e66]">
-                            <span className="text-amber-400 font-black">|--</span>
-                            <span className="font-black text-sm text-zinc-100">{child.hostname}</span>
-                            <span className="text-amber-300 font-black">[{child.ip}]</span>
-                            <span className="text-[11px] border border-[#686884] bg-[#2e2e3e] px-2 py-0.5 text-zinc-200 uppercase font-black ml-auto">
-                              {child.device_type}
-                            </span>
+                {subnets.length === 0 ? (
+                  <div
+                    style={{
+                      padding: '36px 24px',
+                      textAlign: 'center',
+                      backgroundColor: 'var(--bg-surface)',
+                      border: '1px dashed var(--border-subtle)',
+                      borderRadius: '10px',
+                      color: 'var(--text-muted)',
+                      fontSize: '12.5px'
+                    }}
+                  >
+                    No subnets configured. Click "New Subnet" to allocate a private network range.
+                  </div>
+                ) : (
+                  <div className="nd-table-card">
+                    {subnets.map((sub, idx) => {
+                      const allocatedCount = hosts.filter((h) => h.subnet_id === sub.id).length;
+                      return (
+                        <div
+                          key={sub.id}
+                          style={{
+                            padding: '16px 20px',
+                            borderBottom:
+                              idx === subnets.length - 1
+                                ? 'none'
+                                : '1px solid var(--border-subtle)',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            gap: '16px',
+                            flexWrap: 'wrap'
+                          }}
+                        >
+                          <div style={{ minWidth: 0, flex: 1 }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+                              <span
+                                className="nd-break-words"
+                                style={{
+                                  fontSize: '14px',
+                                  fontWeight: 600,
+                                  color: 'var(--text-primary)'
+                                }}
+                              >
+                                {sub.name}
+                              </span>
+                              <span
+                                style={{
+                                  fontSize: '11px',
+                                  fontFamily: 'monospace',
+                                  fontWeight: 600,
+                                  padding: '2px 8px',
+                                  borderRadius: '5px',
+                                  backgroundColor: 'var(--accent-soft)',
+                                  color: 'var(--accent-text)'
+                                }}
+                              >
+                                VLAN {sub.vlan}
+                              </span>
+                            </div>
+
+                            <div
+                              style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '14px',
+                                marginTop: '6px',
+                                fontSize: '12px',
+                                color: 'var(--text-secondary)',
+                                flexWrap: 'wrap'
+                              }}
+                            >
+                              <span>
+                                Gateway:{' '}
+                                <strong style={{ fontFamily: 'monospace', color: 'var(--text-primary)' }}>
+                                  {sub.gateway}
+                                </strong>
+                              </span>
+                              <span>·</span>
+                              <span>
+                                Allocated Hosts:{' '}
+                                <strong style={{ fontFamily: 'monospace', color: 'var(--text-primary)' }}>
+                                  {allocatedCount}
+                                </strong>
+                              </span>
+                            </div>
                           </div>
-                        ))}
-                      </div>
-                    </div>
-                  ))}
+
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexShrink: 0 }}>
+                            <span
+                              style={{
+                                fontSize: '12.5px',
+                                fontFamily: 'monospace',
+                                fontWeight: 500,
+                                padding: '4px 10px',
+                                borderRadius: '6px',
+                                backgroundColor: 'var(--bg-input)',
+                                border: '1px solid var(--border-subtle)',
+                                color: 'var(--text-primary)'
+                              }}
+                            >
+                              {sub.cidr}
+                            </span>
+
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteSubnet(sub)}
+                              className="nd-btn-danger"
+                              style={{ padding: '6px 8px' }}
+                              title="Delete Subnet"
+                            >
+                              <Trash2 size={14} />
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* TOPOLOGY VIEW */}
+          {activeTab === 'topology' && (
+            <div className="nd-center-canvas">
+              <div style={{ maxWidth: '960px' }}>
+                <div style={{ marginBottom: '18px' }}>
+                  <h2 style={{ margin: 0, fontSize: '14px', fontWeight: 600 }}>
+                    Infrastructure Hierarchy
+                  </h2>
+                  <p style={{ margin: '4px 0 0', fontSize: '12.5px', color: 'var(--text-secondary)' }}>
+                    Relationship between physical hypervisors and hosted virtual workloads or containers.
+                  </p>
+                </div>
+
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                  {hosts
+                    .filter((h) => !h.parent_id)
+                    .map((parent) => {
+                      const children = hosts.filter((c) => c.parent_id === parent.id);
+                      return (
+                        <div key={parent.id} className="nd-table-card" style={{ padding: '16px 20px' }}>
+                          <div
+                            onClick={() => {
+                              setSelectedHostId(parent.id);
+                              setActiveTab('roster');
+                            }}
+                            style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'space-between',
+                              gap: '12px',
+                              cursor: 'pointer',
+                              flexWrap: 'wrap'
+                            }}
+                          >
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', minWidth: 0 }}>
+                              <div
+                                style={{
+                                  width: '28px',
+                                  height: '28px',
+                                  borderRadius: '7px',
+                                  backgroundColor: 'var(--accent-soft)',
+                                  color: 'var(--accent-text)',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                                  flexShrink: 0
+                                }}
+                              >
+                                <Server size={15} />
+                              </div>
+                              <div style={{ minWidth: 0 }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                                  <span
+                                    className="nd-break-words"
+                                    style={{
+                                      fontSize: '13.5px',
+                                      fontWeight: 600,
+                                      color: 'var(--text-primary)'
+                                    }}
+                                  >
+                                    {parent.hostname}
+                                  </span>
+                                  <span
+                                    style={{
+                                      fontSize: '11px',
+                                      textTransform: 'capitalize',
+                                      padding: '1px 7px',
+                                      borderRadius: '4px',
+                                      backgroundColor: 'rgba(148, 163, 184, 0.1)',
+                                      color: 'var(--text-secondary)'
+                                    }}
+                                  >
+                                    {parent.device_type}
+                                  </span>
+                                </div>
+                              </div>
+                            </div>
+
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexShrink: 0 }}>
+                              {children.length > 0 && (
+                                <span style={{ fontSize: '11.5px', color: 'var(--text-muted)' }}>
+                                  {children.length} {children.length === 1 ? 'workload' : 'workloads'}
+                                </span>
+                              )}
+                              <span
+                                style={{
+                                  fontSize: '12px',
+                                  fontFamily: 'monospace',
+                                  padding: '3px 8px',
+                                  borderRadius: '5px',
+                                  backgroundColor: 'var(--bg-input)',
+                                  border: '1px solid var(--border-subtle)',
+                                  color: 'var(--text-primary)'
+                                }}
+                              >
+                                {parent.ip}
+                              </span>
+                            </div>
+                          </div>
+
+                          {children.length > 0 && (
+                            <div
+                              style={{
+                                marginTop: '14px',
+                                marginLeft: '13px',
+                                paddingLeft: '16px',
+                                borderLeft: '2px solid var(--border-subtle)',
+                                display: 'flex',
+                                flexDirection: 'column',
+                                gap: '6px'
+                              }}
+                            >
+                              {children.map((child) => (
+                                <div
+                                  key={child.id}
+                                  onClick={() => {
+                                    setSelectedHostId(child.id);
+                                    setActiveTab('roster');
+                                  }}
+                                  style={{
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'space-between',
+                                    gap: '12px',
+                                    padding: '8px 12px',
+                                    borderRadius: '7px',
+                                    backgroundColor: 'rgba(9, 13, 20, 0.45)',
+                                    border: '1px solid var(--border-subtle)',
+                                    cursor: 'pointer'
+                                  }}
+                                >
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0 }}>
+                                    <span
+                                      style={{
+                                        width: '6px',
+                                        height: '6px',
+                                        borderRadius: '50%',
+                                        flexShrink: 0,
+                                        backgroundColor:
+                                          child.status === 'active'
+                                            ? 'var(--status-emerald)'
+                                            : 'var(--status-rose)'
+                                      }}
+                                    />
+                                    <span
+                                      className="nd-truncate"
+                                      title={child.hostname}
+                                      style={{
+                                        fontSize: '12.5px',
+                                        fontWeight: 500,
+                                        color: 'var(--text-primary)'
+                                      }}
+                                    >
+                                      {child.hostname}
+                                    </span>
+                                    <span
+                                      style={{
+                                        fontSize: '11px',
+                                        color: 'var(--text-muted)',
+                                        textTransform: 'capitalize',
+                                        flexShrink: 0
+                                      }}
+                                    >
+                                      {child.device_type}
+                                    </span>
+                                  </div>
+                                  <span
+                                    style={{
+                                      fontSize: '12px',
+                                      fontFamily: 'monospace',
+                                      color: 'var(--text-secondary)',
+                                      flexShrink: 0
+                                    }}
+                                  >
+                                    {child.ip}
+                                  </span>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
                 </div>
               </div>
-            )}
-          </main>
-        </div>
+            </div>
+          )}
+        </main>
       </div>
 
-      {/* Draggable Subnet Modal */}
-      {isSubnetModalOpen && (
-        <DraggableModal 
-          title="// ALLOCATE_SUBNET" 
-          onClose={() => { setIsSubnetModalOpen(false); setSubnetErrors({}); }}
-          widthClass="w-[520px]"
+      {/* MODAL: Create Subnet */}
+      {showSubnetModal && (
+        <ModalDialog
+          title="Create New Subnet"
+          subtitle="Define a private RFC1918 broadcast domain, VLAN ID, and router gateway."
+          onClose={() => {
+            setShowSubnetModal(false);
+            setSubnetErrors({});
+          }}
+          maxWidth="460px"
         >
-          <form onSubmit={handleCreateSubnet} className="space-y-6 text-xs font-mono">
+          <form
+            onSubmit={async (e) => {
+              e.preventDefault();
+              if (!isSubnetValid) return;
+              try {
+                const payload = {
+                  ...newSubnet,
+                  id: newSubnet.id.trim() || `sub-${Date.now()}`,
+                  vlan: parseInt(newSubnet.vlan, 10) || 0
+                };
+                const res = await fetch(`${API_BASE}/subnets`, {
+                  method: 'POST',
+                  credentials: 'include',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify(payload)
+                });
+                if (!res.ok) {
+                  const errData = await res.json();
+                  throw new Error(errData.detail || 'Could not create subnet.');
+                }
+                const created = await res.json();
+                setSubnets((prev) => [...prev, created]);
+                setShowSubnetModal(false);
+                setNewSubnet({ id: '', name: '', cidr: '', vlan: '10', gateway: '' });
+                setSubnetErrors({});
+                showToast(`Created subnet ${created.name}.`);
+              } catch (err) {
+                setError(err.message);
+              }
+            }}
+            style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}
+          >
             <div>
-              <label className="text-white block mb-2 uppercase text-xs font-black tracking-wider">
-                Subnet Label
+              <label
+                style={{
+                  display: 'block',
+                  fontSize: '12px',
+                  fontWeight: 500,
+                  color: 'var(--text-secondary)',
+                  marginBottom: '6px'
+                }}
+              >
+                Subnet Name
               </label>
-              <input style={{ color: "#ffffff" }} 
-                type="text" 
-                placeholder="e.g. Core Services" 
+              <input
+                type="text"
+                placeholder="e.g. Core Infrastructure"
                 value={newSubnet.name}
                 onChange={(e) => {
                   const val = e.target.value;
-                  setNewSubnet(prev => ({ ...prev, name: val }));
+                  setNewSubnet((prev) => ({ ...prev, name: val }));
                   validateSubnetField('name', val);
                 }}
-                className={`w-full bg-[#353547] border-2 px-4 py-3 text-sm text-white font-bold placeholder-zinc-300 focus:outline-none transition shadow-inner ${
-                  subnetErrors.name ? 'border-red-400 bg-red-950/40' : 'border-[#6c6c86] focus:border-amber-300 focus:bg-[#3d3d52]'
-                }`}
+                className={`nd-input ${subnetErrors.name ? 'has-error' : ''}`}
               />
-              {subnetErrors.name && <p className="text-xs text-red-300 mt-2 font-black">&gt; {subnetErrors.name}</p>}
+              {subnetErrors.name && (
+                <p style={{ margin: '5px 0 0', fontSize: '11.5px', color: '#fb7185' }}>
+                  {subnetErrors.name}
+                </p>
+              )}
             </div>
 
-            <div className="grid grid-cols-2 gap-5">
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
               <div>
-                <label className="text-white block mb-2 uppercase text-xs font-black tracking-wider">
-                  CIDR Range
+                <label
+                  style={{
+                    display: 'block',
+                    fontSize: '12px',
+                    fontWeight: 500,
+                    color: 'var(--text-secondary)',
+                    marginBottom: '6px'
+                  }}
+                >
+                  CIDR Block
                 </label>
-                <input style={{ color: "#ffffff" }} 
-                  type="text" 
-                  placeholder="192.168.1.0/24" 
+                <input
+                  type="text"
+                  placeholder="192.168.1.0/24"
                   value={newSubnet.cidr}
                   onChange={(e) => {
                     const val = e.target.value;
-                    const updated = { ...newSubnet, cidr: val };
-                    setNewSubnet(updated);
-                    validateSubnetField('cidr', val, updated);
+                    const next = { ...newSubnet, cidr: val };
+                    setNewSubnet(next);
+                    validateSubnetField('cidr', val, next);
                   }}
-                  className={`w-full bg-[#353547] border-2 px-4 py-3 text-sm text-white font-bold placeholder-zinc-300 focus:outline-none transition shadow-inner ${
-                    subnetErrors.cidr ? 'border-red-400 bg-red-950/40' : 'border-[#6c6c86] focus:border-amber-300 focus:bg-[#3d3d52]'
-                  }`}
+                  className={`nd-input ${subnetErrors.cidr ? 'has-error' : ''}`}
+                  style={{ fontFamily: 'monospace' }}
                 />
-                {subnetErrors.cidr && <p className="text-xs text-red-300 mt-2 font-black">&gt; {subnetErrors.cidr}</p>}
+                {subnetErrors.cidr && (
+                  <p style={{ margin: '5px 0 0', fontSize: '11.5px', color: '#fb7185' }}>
+                    {subnetErrors.cidr}
+                  </p>
+                )}
               </div>
+
               <div>
-                <label className="text-white block mb-2 uppercase text-xs font-black tracking-wider">
-                  VLAN Tag
+                <label
+                  style={{
+                    display: 'block',
+                    fontSize: '12px',
+                    fontWeight: 500,
+                    color: 'var(--text-secondary)',
+                    marginBottom: '6px'
+                  }}
+                >
+                  VLAN ID
                 </label>
-                <input style={{ color: "#ffffff" }} 
-                  type="number" 
-                  placeholder="10" 
+                <input
+                  type="number"
+                  placeholder="10"
                   value={newSubnet.vlan}
                   onChange={(e) => {
                     const val = e.target.value;
-                    setNewSubnet(prev => ({ ...prev, vlan: val }));
+                    setNewSubnet((prev) => ({ ...prev, vlan: val }));
                     validateSubnetField('vlan', val);
                   }}
-                  className={`w-full bg-[#353547] border-2 px-4 py-3 text-sm text-white font-bold placeholder-zinc-300 focus:outline-none transition shadow-inner ${
-                    subnetErrors.vlan ? 'border-red-400 bg-red-950/40' : 'border-[#6c6c86] focus:border-amber-300 focus:bg-[#3d3d52]'
-                  }`}
+                  className={`nd-input ${subnetErrors.vlan ? 'has-error' : ''}`}
+                  style={{ fontFamily: 'monospace' }}
                 />
-                {subnetErrors.vlan && <p className="text-xs text-red-300 mt-2 font-black">&gt; {subnetErrors.vlan}</p>}
+                {subnetErrors.vlan && (
+                  <p style={{ margin: '5px 0 0', fontSize: '11.5px', color: '#fb7185' }}>
+                    {subnetErrors.vlan}
+                  </p>
+                )}
               </div>
             </div>
 
             <div>
-              <label className="text-white block mb-2 uppercase text-xs font-black tracking-wider">
+              <label
+                style={{
+                  display: 'block',
+                  fontSize: '12px',
+                  fontWeight: 500,
+                  color: 'var(--text-secondary)',
+                  marginBottom: '6px'
+                }}
+              >
                 Default Gateway
               </label>
-              <input style={{ color: "#ffffff" }} 
-                type="text" 
-                placeholder="192.168.1.1" 
+              <input
+                type="text"
+                placeholder="192.168.1.1"
                 value={newSubnet.gateway}
                 onChange={(e) => {
                   const val = e.target.value;
-                  const updated = { ...newSubnet, gateway: val };
-                  setNewSubnet(updated);
-                  validateSubnetField('gateway', val, updated);
+                  const next = { ...newSubnet, gateway: val };
+                  setNewSubnet(next);
+                  validateSubnetField('gateway', val, next);
                 }}
-                className={`w-full bg-[#353547] border-2 px-4 py-3 text-sm text-white font-bold placeholder-zinc-300 focus:outline-none transition shadow-inner ${
-                  subnetErrors.gateway ? 'border-red-400 bg-red-950/40' : 'border-[#6c6c86] focus:border-amber-300 focus:bg-[#3d3d52]'
-                }`}
+                className={`nd-input ${subnetErrors.gateway ? 'has-error' : ''}`}
+                style={{ fontFamily: 'monospace' }}
               />
-              {subnetErrors.gateway && <p className="text-xs text-red-300 mt-2 font-black">&gt; {subnetErrors.gateway}</p>}
+              {subnetErrors.gateway && (
+                <p style={{ margin: '5px 0 0', fontSize: '11.5px', color: '#fb7185' }}>
+                  {subnetErrors.gateway}
+                </p>
+              )}
             </div>
 
-            <div className="flex justify-end gap-4 pt-6 border-t-2 border-[#54546c]">
-              <button 
-                type="button" 
-                onClick={() => { setIsSubnetModalOpen(false); setSubnetErrors({}); }}
-                className="px-6 py-3 text-xs font-mono font-black text-zinc-950 bg-white hover:bg-zinc-200 border-2 border-white uppercase transition cursor-pointer shadow-md"
+            <div
+              style={{
+                display: 'flex',
+                justifyContent: 'flex-end',
+                gap: '10px',
+                paddingTop: '14px',
+                borderTop: '1px solid var(--border-subtle)'
+              }}
+            >
+              <button
+                type="button"
+                onClick={() => {
+                  setShowSubnetModal(false);
+                  setSubnetErrors({});
+                }}
+                className="nd-btn-secondary"
               >
-                [ABORT]
+                Cancel
               </button>
-              <button 
-                type="submit" 
-                disabled={!isSubnetFormValid}
-                className={`px-6 py-3 text-xs font-mono font-black uppercase tracking-wider transition border-2 cursor-pointer shadow-md ${
-                  isSubnetFormValid 
-                    ? 'bg-white hover:bg-amber-300 text-zinc-950 border-white ring-2 ring-amber-400' 
-                    : 'bg-zinc-300 text-zinc-700 border-zinc-400 cursor-not-allowed'
-                }`}
-              >
-                [COMMIT_SUBNET]
+              <button type="submit" disabled={!isSubnetValid} className="nd-btn-primary">
+                Create Subnet
               </button>
             </div>
           </form>
-        </DraggableModal>
+        </ModalDialog>
       )}
 
-      {/* Draggable Host Modal */}
-      {isHostModalOpen && (
-        <DraggableModal 
-          title="// PROVISION_HOST" 
-          onClose={() => { setIsHostModalOpen(false); setHostErrors({}); }}
-          widthClass="w-[600px]"
+      {/* MODAL: Add Host */}
+      {showHostModal && (
+        <ModalDialog
+          title="Provision New Host"
+          subtitle="Register a physical server, appliance, virtual machine, or container."
+          onClose={() => {
+            setShowHostModal(false);
+            setHostErrors({});
+          }}
+          maxWidth="520px"
         >
-          <form onSubmit={handleCreateHost} className="space-y-6 text-xs font-mono">
-            <div className="grid grid-cols-2 gap-5">
+          <form
+            onSubmit={async (e) => {
+              e.preventDefault();
+              if (!isHostValid) return;
+              try {
+                const payload = {
+                  ...newHost,
+                  id: newHost.id.trim() || `host-${Date.now()}`,
+                  mac: newHost.mac.trim() || '',
+                  parent_id: newHost.parent_id.trim() || null
+                };
+                const res = await fetch(`${API_BASE}/hosts`, {
+                  method: 'POST',
+                  credentials: 'include',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify(payload)
+                });
+                if (!res.ok) {
+                  const errData = await res.json();
+                  throw new Error(errData.detail || 'Could not create host.');
+                }
+                const created = await res.json();
+                setHosts((prev) => [...prev, created]);
+                setSelectedHostId(created.id);
+                setShowHostModal(false);
+                setNewHost({
+                  id: '',
+                  hostname: '',
+                  ip: '',
+                  mac: '',
+                  os: 'Ubuntu 24.04 LTS',
+                  status: 'active',
+                  device_type: 'server',
+                  subnet_id: subnets[0]?.id || '',
+                  parent_id: '',
+                  notes: ''
+                });
+                setHostErrors({});
+                showToast(`Provisioned ${created.hostname}.`);
+              } catch (err) {
+                setError(err.message);
+              }
+            }}
+            style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}
+          >
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
               <div>
-                <label className="text-white block mb-2 uppercase text-xs font-black tracking-wider">
+                <label
+                  style={{
+                    display: 'block',
+                    fontSize: '12px',
+                    fontWeight: 500,
+                    color: 'var(--text-secondary)',
+                    marginBottom: '6px'
+                  }}
+                >
                   Hostname
                 </label>
-                <input style={{ color: "#ffffff" }} 
-                  type="text" 
+                <input
+                  type="text"
                   placeholder="cerberus"
                   value={newHost.hostname}
                   onChange={(e) => {
                     const val = e.target.value;
-                    setNewHost(prev => ({ ...prev, hostname: val }));
+                    setNewHost((prev) => ({ ...prev, hostname: val }));
                     validateHostField('hostname', val);
                   }}
-                  className={`w-full bg-[#353547] border-2 px-4 py-3 text-sm text-white font-bold placeholder-zinc-300 focus:outline-none transition shadow-inner ${
-                    hostErrors.hostname ? 'border-red-400 bg-red-950/40' : 'border-[#6c6c86] focus:border-amber-300 focus:bg-[#3d3d52]'
-                  }`}
+                  className={`nd-input ${hostErrors.hostname ? 'has-error' : ''}`}
                 />
-                {hostErrors.hostname && <p className="text-xs text-red-300 mt-2 font-black">&gt; {hostErrors.hostname}</p>}
+                {hostErrors.hostname && (
+                  <p style={{ margin: '5px 0 0', fontSize: '11.5px', color: '#fb7185' }}>
+                    {hostErrors.hostname}
+                  </p>
+                )}
               </div>
+
               <div>
-                <label className="text-white block mb-2 uppercase text-xs font-black tracking-wider">
-                  Device Class
+                <label
+                  style={{
+                    display: 'block',
+                    fontSize: '12px',
+                    fontWeight: 500,
+                    color: 'var(--text-secondary)',
+                    marginBottom: '6px'
+                  }}
+                >
+                  Device Type
                 </label>
-                <select style={{ color: "#ffffff" }} 
+                <select
                   value={newHost.device_type}
                   onChange={(e) => setNewHost({ ...newHost, device_type: e.target.value })}
-                  className="w-full bg-[#353547] border-2 border-[#6c6c86] hover:border-amber-300 px-4 py-3 text-sm text-white font-black focus:outline-none uppercase cursor-pointer shadow-inner"
+                  className="nd-input"
                 >
-                  <option value="bare-metal" className="bg-[#292938] text-white py-1">BARE_METAL</option>
-                  <option value="server" className="bg-[#292938] text-white py-1">SERVER</option>
-                  <option value="container" className="bg-[#292938] text-white py-1">CONTAINER</option>
-                  <option value="vm" className="bg-[#292938] text-white py-1">VIRTUAL_MACHINE</option>
-                  <option value="sbc" className="bg-[#292938] text-white py-1">SBC_PI</option>
-                  <option value="switch" className="bg-[#292938] text-white py-1">SWITCH_ROUTER</option>
+                  <option value="bare-metal">Bare Metal</option>
+                  <option value="server">Server</option>
+                  <option value="container">Container</option>
+                  <option value="vm">Virtual Machine</option>
+                  <option value="sbc">SBC / Raspberry Pi</option>
+                  <option value="switch">Switch / Router</option>
                 </select>
               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-5">
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
               <div>
-                <label className="text-white block mb-2 uppercase text-xs font-black tracking-wider">
+                <label
+                  style={{
+                    display: 'block',
+                    fontSize: '12px',
+                    fontWeight: 500,
+                    color: 'var(--text-secondary)',
+                    marginBottom: '6px'
+                  }}
+                >
                   IPv4 Address
                 </label>
-                <input style={{ color: "#ffffff" }} 
-                  type="text" 
+                <input
+                  type="text"
                   placeholder="192.168.1.5"
                   value={newHost.ip}
                   onChange={(e) => {
                     const val = e.target.value;
-                    const updated = { ...newHost, ip: val };
-                    setNewHost(updated);
-                    validateHostField('ip', val, updated);
+                    const next = { ...newHost, ip: val };
+                    setNewHost(next);
+                    validateHostField('ip', val, next);
                   }}
-                  className={`w-full bg-[#353547] border-2 px-4 py-3 text-sm text-white font-bold placeholder-zinc-300 focus:outline-none transition shadow-inner ${
-                    hostErrors.ip ? 'border-red-400 bg-red-950/40' : 'border-[#6c6c86] focus:border-amber-300 focus:bg-[#3d3d52]'
-                  }`}
+                  className={`nd-input ${hostErrors.ip ? 'has-error' : ''}`}
+                  style={{ fontFamily: 'monospace' }}
                 />
-                {hostErrors.ip && <p className="text-xs text-red-300 mt-2 font-black">&gt; {hostErrors.ip}</p>}
+                {hostErrors.ip && (
+                  <p style={{ margin: '5px 0 0', fontSize: '11.5px', color: '#fb7185' }}>
+                    {hostErrors.ip}
+                  </p>
+                )}
               </div>
+
               <div>
-                <label className="text-white block mb-2 uppercase text-xs font-black tracking-wider">
-                  MAC Address <span className="text-amber-300 font-bold">(OPTIONAL)</span>
+                <label
+                  style={{
+                    display: 'block',
+                    fontSize: '12px',
+                    fontWeight: 500,
+                    color: 'var(--text-secondary)',
+                    marginBottom: '6px'
+                  }}
+                >
+                  MAC Address <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>(optional)</span>
                 </label>
-                <input style={{ color: "#ffffff" }} 
-                  type="text" 
+                <input
+                  type="text"
                   placeholder="bc:24:11:92:aa:01"
                   value={newHost.mac}
                   onChange={(e) => {
                     const val = e.target.value;
-                    setNewHost(prev => ({ ...prev, mac: val }));
+                    setNewHost((prev) => ({ ...prev, mac: val }));
                     validateHostField('mac', val);
                   }}
-                  className={`w-full bg-[#353547] border-2 px-4 py-3 text-sm text-white font-bold placeholder-zinc-300 focus:outline-none transition shadow-inner ${
-                    hostErrors.mac ? 'border-red-400 bg-red-950/40' : 'border-[#6c6c86] focus:border-amber-300 focus:bg-[#3d3d52]'
-                  }`}
+                  className={`nd-input ${hostErrors.mac ? 'has-error' : ''}`}
+                  style={{ fontFamily: 'monospace' }}
                 />
-                {hostErrors.mac && <p className="text-xs text-red-300 mt-2 font-black">&gt; {hostErrors.mac}</p>}
+                {hostErrors.mac && (
+                  <p style={{ margin: '5px 0 0', fontSize: '11.5px', color: '#fb7185' }}>
+                    {hostErrors.mac}
+                  </p>
+                )}
               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-5">
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
               <div>
-                <label className="text-white block mb-2 uppercase text-xs font-black tracking-wider">
+                <label
+                  style={{
+                    display: 'block',
+                    fontSize: '12px',
+                    fontWeight: 500,
+                    color: 'var(--text-secondary)',
+                    marginBottom: '6px'
+                  }}
+                >
                   Assigned Subnet
                 </label>
-                <select style={{ color: "#ffffff" }} 
+                <select
                   value={newHost.subnet_id}
                   onChange={(e) => {
                     const val = e.target.value;
-                    const updated = { ...newHost, subnet_id: val };
-                    setNewHost(updated);
-                    validateHostField('subnet_id', val, updated);
+                    const next = { ...newHost, subnet_id: val };
+                    setNewHost(next);
+                    validateHostField('subnet_id', val, next);
                   }}
-                  className={`w-full bg-[#353547] border-2 px-4 py-3 text-sm text-white font-black focus:outline-none cursor-pointer shadow-inner ${
-                    hostErrors.subnet_id ? 'border-red-400 bg-red-950/40' : 'border-[#6c6c86] hover:border-amber-300'
-                  }`}
+                  className={`nd-input ${hostErrors.subnet_id ? 'has-error' : ''}`}
                 >
-                  <option value="" className="bg-[#292938] text-white py-1">SELECT_SUBNET...</option>
-                  {subnets.map(s => (
-                    <option key={s.id} value={s.id} className="bg-[#292938] text-white py-1">{s.name} [{s.cidr}]</option>
+                  <option value="">Select subnet...</option>
+                  {subnets.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.name} ({s.cidr})
+                    </option>
                   ))}
                 </select>
-                {hostErrors.subnet_id && <p className="text-xs text-red-300 mt-2 font-black">&gt; {hostErrors.subnet_id}</p>}
+                {hostErrors.subnet_id && (
+                  <p style={{ margin: '5px 0 0', fontSize: '11.5px', color: '#fb7185' }}>
+                    {hostErrors.subnet_id}
+                  </p>
+                )}
               </div>
+
               <div>
-                <label className="text-white block mb-2 uppercase text-xs font-black tracking-wider">
+                <label
+                  style={{
+                    display: 'block',
+                    fontSize: '12px',
+                    fontWeight: 500,
+                    color: 'var(--text-secondary)',
+                    marginBottom: '6px'
+                  }}
+                >
                   Parent Host
                 </label>
-                <select style={{ color: "#ffffff" }} 
+                <select
                   value={newHost.parent_id}
                   onChange={(e) => setNewHost({ ...newHost, parent_id: e.target.value })}
-                  className="w-full bg-[#353547] border-2 border-[#6c6c86] hover:border-amber-300 px-4 py-3 text-sm text-white font-black focus:outline-none uppercase cursor-pointer shadow-inner"
+                  className="nd-input"
                 >
-                  <option value="" className="bg-[#292938] text-white py-1">NONE (STANDALONE)</option>
-                  {hosts.map(h => (
-                    <option key={h.id} value={h.id} className="bg-[#292938] text-white py-1">{h.hostname} [{h.ip}]</option>
+                  <option value="">Standalone (None)</option>
+                  {hosts.map((h) => (
+                    <option key={h.id} value={h.id}>
+                      {h.hostname} ({h.ip})
+                    </option>
                   ))}
                 </select>
               </div>
             </div>
 
             <div>
-              <label className="text-white block mb-2 uppercase text-xs font-black tracking-wider">
+              <label
+                style={{
+                  display: 'block',
+                  fontSize: '12px',
+                  fontWeight: 500,
+                  color: 'var(--text-secondary)',
+                  marginBottom: '6px'
+                }}
+              >
                 Operating System
               </label>
-              <input style={{ color: "#ffffff" }} 
-                type="text" 
+              <input
+                type="text"
                 placeholder="Ubuntu 24.04 LTS"
                 value={newHost.os}
                 onChange={(e) => setNewHost({ ...newHost, os: e.target.value })}
-                className="w-full bg-[#353547] border-2 border-[#6c6c86] px-4 py-3 text-sm text-white font-bold placeholder-zinc-300 focus:outline-none focus:border-amber-300 focus:bg-[#3d3d52] shadow-inner"
+                className="nd-input"
               />
             </div>
 
-            <div className="flex justify-end gap-4 pt-6 border-t-2 border-[#54546c]">
-              <button 
-                type="button" 
-                onClick={() => { setIsHostModalOpen(false); setHostErrors({}); }}
-                className="px-6 py-3 text-xs font-mono font-black text-zinc-950 bg-white hover:bg-zinc-200 border-2 border-white uppercase transition cursor-pointer shadow-md"
+            <div
+              style={{
+                display: 'flex',
+                justifyContent: 'flex-end',
+                gap: '10px',
+                paddingTop: '14px',
+                borderTop: '1px solid var(--border-subtle)'
+              }}
+            >
+              <button
+                type="button"
+                onClick={() => {
+                  setShowHostModal(false);
+                  setHostErrors({});
+                }}
+                className="nd-btn-secondary"
               >
-                [ABORT]
+                Cancel
               </button>
-              <button 
-                type="submit" 
-                disabled={!isHostFormValid}
-                className={`px-6 py-3 text-xs font-mono font-black uppercase tracking-wider transition border-2 cursor-pointer shadow-md ${
-                  isHostFormValid 
-                    ? 'bg-white hover:bg-amber-300 text-zinc-950 border-white ring-2 ring-amber-400' 
-                    : 'bg-zinc-300 text-zinc-700 border-zinc-400 cursor-not-allowed'
-                }`}
-              >
-                [COMMIT_HOST]
+              <button type="submit" disabled={!isHostValid} className="nd-btn-primary">
+                Add Host
               </button>
             </div>
           </form>
-        </DraggableModal>
+        </ModalDialog>
       )}
     </div>
   );

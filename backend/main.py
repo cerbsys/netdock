@@ -27,171 +27,144 @@ SETUP_HTML = """<!DOCTYPE html>
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>NETDOCK // INITIAL PROVISIONING</title>
+  <title>NetDock — Initialize Operator</title>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
-      background: #14141b;
-      color: #f4f4f5;
-      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      background-color: #0b0f17;
+      color: #f1f5f9;
+      font-family: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", Roboto, sans-serif;
       display: flex;
       align-items: center;
       justify-content: center;
       min-height: 100vh;
       padding: 1.5rem;
+      -webkit-font-smoothing: antialiased;
     }
-    .chassis {
-      background: #1a1a24;
-      border: 2px solid #54546c;
+    .auth-card {
       width: 100%;
-      max-width: 440px;
-      position: relative;
-      box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.85);
+      max-width: 380px;
+      background-color: #0f1522;
+      border: 1px solid rgba(148, 163, 184, 0.14);
+      border-radius: 12px;
+      padding: 2rem;
+      box-shadow: 0 20px 40px rgba(0, 0, 0, 0.45);
     }
-    .amber-strip {
-      background: #fbbf24;
-      height: 4px;
-      width: 100%;
-    }
-    .card-body { padding: 2rem; }
-    .header {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      border-bottom: 2px solid #54546c;
-      padding-bottom: 1rem;
-      margin-bottom: 1.5rem;
-    }
-    .title {
-      color: #fbbf24;
-      font-size: 0.95rem;
-      font-weight: 900;
-      letter-spacing: 0.12em;
+    .brand-row {
       display: flex;
       align-items: center;
-      gap: 0.6rem;
-    }
-    .indicator {
-      width: 9px;
-      height: 9px;
-      background: #fbbf24;
-      box-shadow: 0 0 8px #fbbf24;
-    }
-    .badge {
-      font-size: 0.68rem;
-      color: #000;
-      background: #fbbf24;
-      font-weight: 900;
-      padding: 0.15rem 0.45rem;
-      border: 1px solid #f59e0b;
-      letter-spacing: 0.05em;
-    }
-    .notice {
-      background: #232332;
-      border-left: 3px solid #fbbf24;
-      padding: 0.75rem 1rem;
-      font-size: 0.72rem;
-      color: #d4d4d8;
-      line-height: 1.4;
+      gap: 0.75rem;
       margin-bottom: 1.5rem;
     }
-    .field { margin-bottom: 1.25rem; }
+    .brand-mark {
+      width: 32px;
+      height: 32px;
+      background-color: rgba(99, 102, 241, 0.14);
+      border: 1px solid rgba(99, 102, 241, 0.35);
+      border-radius: 8px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      color: #a5b4fc;
+    }
+    .brand-name {
+      font-size: 0.9375rem;
+      font-weight: 600;
+      color: #f8fafc;
+    }
+    .auth-title {
+      font-size: 1.125rem;
+      font-weight: 600;
+      color: #f8fafc;
+      margin-bottom: 0.375rem;
+    }
+    .auth-subtitle {
+      font-size: 0.8125rem;
+      color: #94a3b8;
+      line-height: 1.5;
+      margin-bottom: 1.5rem;
+    }
+    .field {
+      margin-bottom: 1rem;
+    }
+    .field:last-of-type {
+      margin-bottom: 1.5rem;
+    }
     label {
       display: block;
-      font-size: 0.72rem;
-      font-weight: 800;
-      color: #a1a1aa;
-      margin-bottom: 0.45rem;
-      letter-spacing: 0.08em;
+      font-size: 0.75rem;
+      font-weight: 500;
+      color: #94a3b8;
+      margin-bottom: 0.375rem;
     }
-    input {
+    input[type="text"], input[type="password"] {
       width: 100%;
-      background: #29293a;
-      border: 2px solid #60607a;
-      color: #ffffff;
-      padding: 0.7rem 0.85rem;
-      font-size: 0.85rem;
-      font-family: inherit;
+      background-color: #090d14;
+      border: 1px solid rgba(148, 163, 184, 0.14);
+      border-radius: 7px;
+      padding: 0.5625rem 0.75rem;
+      color: #f1f5f9;
+      font-size: 0.8125rem;
       outline: none;
-      transition: all 0.15s ease-in-out;
+      transition: border-color 0.15s ease, box-shadow 0.15s ease;
     }
-    input:focus {
-      border-color: #fbbf24;
-      background: #333346;
-      box-shadow: 0 0 0 1px #fbbf24;
+    input[type="text"]:focus, input[type="password"]:focus {
+      border-color: #6366f1;
+      box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.18);
     }
-    button {
+    button[type="submit"] {
       width: 100%;
-      background: #fbbf24;
-      color: #000;
-      font-weight: 900;
-      font-size: 0.8rem;
-      letter-spacing: 0.12em;
-      text-transform: uppercase;
-      padding: 0.85rem 1rem;
-      border: 2px solid #f59e0b;
+      background-color: #6366f1;
+      color: #ffffff;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 7px;
+      padding: 0.625rem 0.875rem;
+      font-size: 0.8125rem;
+      font-weight: 500;
       cursor: pointer;
-      margin-top: 0.75rem;
-      box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.4);
-      transition: all 0.15s ease-in-out;
+      transition: background-color 0.15s ease;
     }
-    button:hover {
-      background: #f59e0b;
+    button[type="submit"]:hover {
+      background-color: #4f46e5;
     }
     .err-box {
-      background: rgba(185, 28, 28, 0.25);
-      border: 2px solid #ef4444;
-      color: #fca5a5;
-      font-size: 0.75rem;
-      font-weight: 700;
-      padding: 0.65rem 0.85rem;
       margin-bottom: 1.25rem;
+      padding: 0.625rem 0.75rem;
+      background-color: rgba(244, 63, 94, 0.12);
+      border: 1px solid rgba(244, 63, 94, 0.3);
+      border-radius: 7px;
+      color: #fda4af;
+      font-size: 0.75rem;
+      line-height: 1.4;
     }
-    .footer {
-      margin-top: 1.75rem;
-      padding-top: 0.85rem;
-      border-top: 2px solid #54546c;
-      display: flex;
-      justify-content: space-between;
-      font-size: 0.68rem;
-      font-weight: 700;
-      color: #71717a;
-    }
-  </style>
+</style>
 </head>
 <body>
-  <div class="chassis">
-    <div class="amber-strip"></div>
-    <div class="card-body">
-      <div class="header">
-        <div class="title"><span class="indicator"></span>NETDOCK // INIT</div>
-        <div class="badge">FIRST_RUN</div>
+  <div class="auth-card">
+    <div class="brand-row">
+      <div class="brand-mark">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="16" y="16" width="6" height="6" rx="1"/><rect x="2" y="16" width="6" height="6" rx="1"/><rect x="9" y="2" width="6" height="6" rx="1"/><path d="M5 16v-3a1 1 0 0 1 1-1h12a1 1 0 0 1 1 1v3"/><path d="M12 12V8"/></svg>
       </div>
-      <div class="notice">
-        [INITIAL_PROVISIONING]<br>
-        Create your primary operator key. Credentials are encrypted and persisted to your mounted SQLite database.
-      </div>
-      __ERROR_PLACEHOLDER__
-      <form method="POST" action="/auth/setup">
-        <div class="field">
-          <label>// DESIRED_OPERATOR_ID</label>
-          <input type="text" name="username" placeholder="e.g. admin" required autocomplete="username" autofocus />
-        </div>
-        <div class="field">
-          <label>// CREATE_ACCESS_KEY</label>
-          <input type="password" name="password" minlength="6" placeholder="Min 6 characters" required autocomplete="new-password" />
-        </div>
-        <div class="field">
-          <label>// CONFIRM_ACCESS_KEY</label>
-          <input type="password" name="confirm_password" minlength="6" required autocomplete="new-password" />
-        </div>
-        <button type="submit">[ PROVISION_CREDENTIALS ]</button>
-      </form>
-      <div class="footer">
-        <span>STORAGE: /data/netdock.db</span>
-        <span>SECURITY: PBKDF2_SHA256</span>
-      </div>
+      <span class="brand-name">NetDock</span>
     </div>
+    <h1 class="auth-title">Initialize operator account</h1>
+    <p class="auth-subtitle">Configure your primary credentials to secure network telemetry and asset records.</p>
+    __ERROR_PLACEHOLDER__
+    <form method="POST" action="/auth/setup">
+      <div class="field">
+        <label for="username">Username</label>
+        <input type="text" id="username" name="username" placeholder="admin" required autofocus autocomplete="username" />
+      </div>
+      <div class="field">
+        <label for="password">Operator key (min. 6 characters)</label>
+        <input type="password" id="password" name="password" placeholder="••••••••" required autocomplete="new-password" />
+      </div>
+      <div class="field">
+        <label for="confirm_password">Confirm operator key</label>
+        <input type="password" id="confirm_password" name="confirm_password" placeholder="••••••••" required autocomplete="new-password" />
+      </div>
+      <button type="submit">Create Operator Account</button>
+    </form>
   </div>
 </body>
 </html>"""
@@ -201,157 +174,140 @@ LOGIN_HTML = """<!DOCTYPE html>
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>NETDOCK // OPERATOR AUTH</title>
+  <title>NetDock — Sign In</title>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
-      background: #14141b;
-      color: #f4f4f5;
-      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      background-color: #0b0f17;
+      color: #f1f5f9;
+      font-family: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", Roboto, sans-serif;
       display: flex;
       align-items: center;
       justify-content: center;
       min-height: 100vh;
       padding: 1.5rem;
+      -webkit-font-smoothing: antialiased;
     }
-    .chassis {
-      background: #1a1a24;
-      border: 2px solid #54546c;
+    .auth-card {
       width: 100%;
-      max-width: 420px;
-      position: relative;
-      box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.85);
+      max-width: 380px;
+      background-color: #0f1522;
+      border: 1px solid rgba(148, 163, 184, 0.14);
+      border-radius: 12px;
+      padding: 2rem;
+      box-shadow: 0 20px 40px rgba(0, 0, 0, 0.45);
     }
-    .amber-strip {
-      background: #fbbf24;
-      height: 4px;
-      width: 100%;
-    }
-    .card-body { padding: 2rem; }
-    .header {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      border-bottom: 2px solid #54546c;
-      padding-bottom: 1rem;
-      margin-bottom: 1.75rem;
-    }
-    .title {
-      color: #fbbf24;
-      font-size: 0.95rem;
-      font-weight: 900;
-      letter-spacing: 0.12em;
+    .brand-row {
       display: flex;
       align-items: center;
-      gap: 0.6rem;
+      gap: 0.75rem;
+      margin-bottom: 1.5rem;
     }
-    .indicator {
-      width: 9px;
-      height: 9px;
-      background: #fbbf24;
-      box-shadow: 0 0 8px #fbbf24;
+    .brand-mark {
+      width: 32px;
+      height: 32px;
+      background-color: rgba(99, 102, 241, 0.14);
+      border: 1px solid rgba(99, 102, 241, 0.35);
+      border-radius: 8px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      color: #a5b4fc;
     }
-    .badge {
-      font-size: 0.7rem;
-      color: #000;
-      background: #fbbf24;
-      font-weight: 900;
-      padding: 0.15rem 0.45rem;
-      border: 1px solid #f59e0b;
-      letter-spacing: 0.05em;
+    .brand-name {
+      font-size: 0.9375rem;
+      font-weight: 600;
+      color: #f8fafc;
     }
-    .field { margin-bottom: 1.25rem; }
+    .auth-title {
+      font-size: 1.125rem;
+      font-weight: 600;
+      color: #f8fafc;
+      margin-bottom: 0.375rem;
+    }
+    .auth-subtitle {
+      font-size: 0.8125rem;
+      color: #94a3b8;
+      line-height: 1.5;
+      margin-bottom: 1.5rem;
+    }
+    .field {
+      margin-bottom: 1rem;
+    }
+    .field:last-of-type {
+      margin-bottom: 1.5rem;
+    }
     label {
       display: block;
-      font-size: 0.72rem;
-      font-weight: 800;
-      color: #a1a1aa;
-      margin-bottom: 0.45rem;
-      letter-spacing: 0.08em;
+      font-size: 0.75rem;
+      font-weight: 500;
+      color: #94a3b8;
+      margin-bottom: 0.375rem;
     }
-    input {
+    input[type="text"], input[type="password"] {
       width: 100%;
-      background: #29293a;
-      border: 2px solid #60607a;
-      color: #ffffff;
-      padding: 0.7rem 0.85rem;
-      font-size: 0.85rem;
-      font-family: inherit;
+      background-color: #090d14;
+      border: 1px solid rgba(148, 163, 184, 0.14);
+      border-radius: 7px;
+      padding: 0.5625rem 0.75rem;
+      color: #f1f5f9;
+      font-size: 0.8125rem;
       outline: none;
-      transition: all 0.15s ease-in-out;
+      transition: border-color 0.15s ease, box-shadow 0.15s ease;
     }
-    input:focus {
-      border-color: #fbbf24;
-      background: #333346;
-      box-shadow: 0 0 0 1px #fbbf24;
+    input[type="text"]:focus, input[type="password"]:focus {
+      border-color: #6366f1;
+      box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.18);
     }
-    button {
+    button[type="submit"] {
       width: 100%;
-      background: #333346;
+      background-color: #6366f1;
       color: #ffffff;
-      font-weight: 900;
-      font-size: 0.8rem;
-      letter-spacing: 0.12em;
-      text-transform: uppercase;
-      padding: 0.85rem 1rem;
-      border: 2px solid #60607a;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 7px;
+      padding: 0.625rem 0.875rem;
+      font-size: 0.8125rem;
+      font-weight: 500;
       cursor: pointer;
-      margin-top: 0.75rem;
-      box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.4);
-      transition: all 0.15s ease-in-out;
+      transition: background-color 0.15s ease;
     }
-    button:hover {
-      background: #43435c;
-      color: #fbbf24;
-      border-color: #fbbf24;
+    button[type="submit"]:hover {
+      background-color: #4f46e5;
     }
     .err-box {
-      background: rgba(185, 28, 28, 0.25);
-      border: 2px solid #ef4444;
-      color: #fca5a5;
-      font-size: 0.75rem;
-      font-weight: 700;
-      padding: 0.65rem 0.85rem;
       margin-bottom: 1.25rem;
-      letter-spacing: 0.05em;
+      padding: 0.625rem 0.75rem;
+      background-color: rgba(244, 63, 94, 0.12);
+      border: 1px solid rgba(244, 63, 94, 0.3);
+      border-radius: 7px;
+      color: #fda4af;
+      font-size: 0.75rem;
+      line-height: 1.4;
     }
-    .footer {
-      margin-top: 1.75rem;
-      padding-top: 0.85rem;
-      border-top: 2px solid #54546c;
-      display: flex;
-      justify-content: space-between;
-      font-size: 0.68rem;
-      font-weight: 700;
-      color: #71717a;
-    }
-  </style>
+</style>
 </head>
 <body>
-  <div class="chassis">
-    <div class="amber-strip"></div>
-    <div class="card-body">
-      <div class="header">
-        <div class="title"><span class="indicator"></span>NETDOCK // AUTH</div>
-        <div class="badge">SYS_GATE</div>
+  <div class="auth-card">
+    <div class="brand-row">
+      <div class="brand-mark">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="16" y="16" width="6" height="6" rx="1"/><rect x="2" y="16" width="6" height="6" rx="1"/><rect x="9" y="2" width="6" height="6" rx="1"/><path d="M5 16v-3a1 1 0 0 1 1-1h12a1 1 0 0 1 1 1v3"/><path d="M12 12V8"/></svg>
       </div>
-      __ERROR_PLACEHOLDER__
-      <form method="POST" action="/auth/login">
-        <div class="field">
-          <label>// OPERATOR_ID</label>
-          <input type="text" name="username" required autocomplete="username" autofocus />
-        </div>
-        <div class="field">
-          <label>// ACCESS_KEY</label>
-          <input type="password" name="password" required autocomplete="current-password" />
-        </div>
-        <button type="submit">[ INITIALIZE_SESSION ]</button>
-      </form>
-      <div class="footer">
-        <span>CHASSIS: 01_ARMORED</span>
-        <span>ENGINE: SQLITE_WAL</span>
-      </div>
+      <span class="brand-name">NetDock</span>
     </div>
+    <h1 class="auth-title">Sign in to NetDock</h1>
+    <p class="auth-subtitle">Enter your operator credentials to access the infrastructure inventory.</p>
+    __ERROR_PLACEHOLDER__
+    <form method="POST" action="/auth/login">
+      <div class="field">
+        <label for="username">Username</label>
+        <input type="text" id="username" name="username" placeholder="admin" required autofocus autocomplete="username" />
+      </div>
+      <div class="field">
+        <label for="password">Operator key</label>
+        <input type="password" id="password" name="password" placeholder="••••••••" required autocomplete="current-password" />
+      </div>
+      <button type="submit">Sign In</button>
+    </form>
   </div>
 </body>
 </html>"""
@@ -408,11 +364,11 @@ async def handle_setup(request: Request):
     confirm_password = form.get("confirm_password", "")
 
     if not username or len(password) < 6:
-        err = '<div class="err-box">[ERR] Username required, password must be at least 6 characters.</div>'
+        err = '<div class="err-box">Username is required and password must be at least 6 characters.</div>'
         return HTMLResponse(content=SETUP_HTML.replace("__ERROR_PLACEHOLDER__", err), status_code=400)
 
     if password != confirm_password:
-        err = '<div class="err-box">[ERR] Passwords do not match. Re-enter keys.</div>'
+        err = '<div class="err-box">Passwords do not match. Please try again.</div>'
         return HTMLResponse(content=SETUP_HTML.replace("__ERROR_PLACEHOLDER__", err), status_code=400)
 
     salt = secrets.token_hex(16)
@@ -467,7 +423,7 @@ async def handle_login(request: Request):
                 )
                 return response
 
-    error_banner = '<div class="err-box">[ERR] ACCESS_DENIED: Invalid operator key</div>'
+    error_banner = '<div class="err-box">Invalid operator key. Please try again.</div>'
     return HTMLResponse(content=LOGIN_HTML.replace("__ERROR_PLACEHOLDER__", error_banner), status_code=401)
 
 @app.api_route("/auth/logout", methods=["GET", "POST"])
