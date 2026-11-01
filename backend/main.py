@@ -475,7 +475,11 @@ def handle_logout(request: Request):
     token = request.cookies.get("netdock_session")
     if token and token in VALID_SESSIONS:
         VALID_SESSIONS.discard(token)
-    response = Response(content='{"status":"logged_out"}', media_type="application/json")
+    if request.method == "GET":
+        from fastapi.responses import RedirectResponse
+        response = RedirectResponse(url="/", status_code=303)
+    else:
+        response = Response(content='{"status":"logged_out"}', media_type="application/json")
     response.delete_cookie(key="netdock_session", path="/")
     return response
 
