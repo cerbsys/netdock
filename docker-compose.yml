@@ -11,6 +11,6 @@ services:
       - 8.8.8.8
     volumes:
       - ./data:/data
-      - ./backend:/app/backend
-      - ./frontend/dist:/app/static:ro
       - /var/run/docker.sock:/var/run/docker.sock:ro
+    environment:
+      - PYTHONUNBUFFERED=1
