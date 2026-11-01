@@ -16,10 +16,10 @@ Save the following `docker-compose.yml`:
 services:
   netdock:
     image: ghcr.io/cerbsys/netdock:latest
-    container_name: netdock2
+    container_name: netdock
     restart: unless-stopped
     ports:
-      - "8685:8000"
+      - "8085:8000"
     user: "0:983"
     dns:
       - 1.1.1.1
