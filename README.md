@@ -16,14 +16,19 @@ Save the following `docker-compose.yml`:
 services:
   netdock:
     image: ghcr.io/cerbsys/netdock:latest
-    container_name: netdock
+    container_name: netdock2
     restart: unless-stopped
     ports:
-      - "8085:8000"
-    user: "0:GID"  # Replace GID with your host GID.
+      - "8685:8000"
+    user: "0:983"
+    dns:
+      - 1.1.1.1
+      - 8.8.8.8
     volumes:
       - ./data:/data
       - /var/run/docker.sock:/var/run/docker.sock:ro
+    environment:
+      - PYTHONUNBUFFERED=1
 
 ```
 Run:
