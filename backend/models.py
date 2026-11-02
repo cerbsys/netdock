@@ -149,3 +149,17 @@ class Operator(SQLModel, table=True):
     salt: str
     password_hash: str
     created_at: int
+
+
+class AppSettings(SQLModel, table=True):
+    id: str = Field(default="global", primary_key=True)
+    theme: str = Field(default="dark")
+    accent_color: str = Field(default="indigo")
+    density: str = Field(default="default")
+    container_log_limit: int = Field(default=250)
+    log_refresh_interval: int = Field(default=5)
+    container_sort_by: str = Field(default="hostname")
+    container_sort_order: str = Field(default="asc")
+    auto_refresh_interval: int = Field(default=0)
+    confirm_destructive: bool = Field(default=True)
+    updated_at: int = Field(default=0)

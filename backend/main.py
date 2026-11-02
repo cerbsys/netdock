@@ -15,12 +15,14 @@ from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 from sqlmodel import Session, select
 
 from database import init_db, get_session, engine
-from models import Host, Subnet, Service, Operator
+from models import Host, Subnet, Service, Operator, AppSettings
 
 def hash_secret(secret: str, salt: str) -> str:
     return hashlib.pbkdf2_hmac("sha256", secret.encode(), salt.encode(), 100000).hex()
 
 VALID_SESSIONS = set()
+PROCESS_START_TIME = int(time.time())
+APP_VERSION = '1.4.0'
 
 NO_CACHE_HEADERS = {
     "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
@@ -703,6 +705,343 @@ def import_database(payload: dict, session: Session = Depends(get_session)):
         session.add(Service(**srv_data))
     session.commit()
     return {"status": "success", "imported": True}
+
+
+# --- Settings, Account, Docker Preferences & System Management Routes ---
+import platform
+from pydantic import BaseModel
+from sqlalchemy import text
+
+ALLOWED_THEMES = {"dark", "light", "system"}
+ALLOWED_ACCENTS = {"indigo", "sky", "emerald", "amber", "rose", "slate"}
+ALLOWED_DENSITIES = {"comfortable", "default", "compact"}
+ALLOWED_LOG_LIMITS = {50, 100, 250, 500, 1000, 2500}
+ALLOWED_LOG_REFRESH = {0, 2, 5, 10, 30}
+ALLOWED_SORT_BY = {"hostname", "ip", "status", "device_type"}
+ALLOWED_SORT_ORDER = {"asc", "desc"}
+ALLOWED_REFRESH_INTERVALS = {0, 15, 30, 60, 300}
+
+class SettingsUpdatePayload(BaseModel):
+    theme: Optional[str] = None
+    accent_color: Optional[str] = None
+    density: Optional[str] = None
+    container_log_limit: Optional[int] = None
+    log_refresh_interval: Optional[int] = None
+    container_sort_by: Optional[str] = None
+    container_sort_order: Optional[str] = None
+    auto_refresh_interval: Optional[int] = None
+    confirm_destructive: Optional[bool] = None
+
+class CredentialsUpdatePayload(BaseModel):
+    current_password: str
+    new_username: Optional[str] = None
+    new_password: Optional[str] = None
+    confirm_password: Optional[str] = None
+    revoke_other_sessions: bool = True
+
+def ensure_appsettings_schema(session: Session):
+    required_columns = {
+        "theme": ("TEXT", "'dark'"),
+        "accent_color": ("TEXT", "'indigo'"),
+        "density": ("TEXT", "'default'"),
+        "container_log_limit": ("INTEGER", "250"),
+        "log_refresh_interval": ("INTEGER", "5"),
+        "container_sort_by": ("TEXT", "'hostname'"),
+        "container_sort_order": ("TEXT", "'asc'"),
+        "auto_refresh_interval": ("INTEGER", "0"),
+        "confirm_destructive": ("INTEGER", "1"),
+        "updated_at": ("INTEGER", "0"),
+    }
+    try:
+        rows = session.exec(text("PRAGMA table_info(appsettings)")).all()
+        existing_cols = {r[1] for r in rows}
+        if not existing_cols:
+            SQLModel.metadata.create_all(engine)
+            return
+        for col_name, (col_type, default_val) in required_columns.items():
+            if col_name not in existing_cols:
+                session.exec(
+                    text(f"ALTER TABLE appsettings ADD COLUMN {col_name} {col_type} DEFAULT {default_val}")
+                )
+        session.commit()
+    except Exception:
+        session.rollback()
+
+def get_or_create_settings(session: Session) -> AppSettings:
+    ensure_appsettings_schema(session)
+    try:
+        settings_row = session.get(AppSettings, "global")
+        if not settings_row:
+            settings_row = AppSettings(id="global", updated_at=int(time.time()))
+            session.add(settings_row)
+            session.commit()
+            session.refresh(settings_row)
+
+        dirty = False
+        if settings_row.theme not in ALLOWED_THEMES:
+            settings_row.theme = "dark"
+            dirty = True
+        if settings_row.accent_color not in ALLOWED_ACCENTS:
+            settings_row.accent_color = "indigo"
+            dirty = True
+        if settings_row.density not in ALLOWED_DENSITIES:
+            settings_row.density = "default"
+            dirty = True
+        if settings_row.container_log_limit not in ALLOWED_LOG_LIMITS:
+            settings_row.container_log_limit = 250
+            dirty = True
+        if settings_row.log_refresh_interval not in ALLOWED_LOG_REFRESH:
+            settings_row.log_refresh_interval = 5
+            dirty = True
+        if settings_row.container_sort_by not in ALLOWED_SORT_BY:
+            settings_row.container_sort_by = "hostname"
+            dirty = True
+        if settings_row.container_sort_order not in ALLOWED_SORT_ORDER:
+            settings_row.container_sort_order = "asc"
+            dirty = True
+        if settings_row.auto_refresh_interval not in ALLOWED_REFRESH_INTERVALS:
+            settings_row.auto_refresh_interval = 0
+            dirty = True
+        if dirty:
+            session.add(settings_row)
+            session.commit()
+            session.refresh(settings_row)
+        return settings_row
+    except Exception:
+        session.rollback()
+        return AppSettings(id="global", updated_at=int(time.time()))
+
+@app.get("/api/v1/settings", response_model=AppSettings)
+def read_app_settings(session: Session = Depends(get_session)):
+    return get_or_create_settings(session)
+
+@app.put("/api/v1/settings", response_model=AppSettings)
+def update_app_settings(payload: SettingsUpdatePayload, session: Session = Depends(get_session)):
+    settings_row = get_or_create_settings(session)
+
+    if payload.theme is not None:
+        if payload.theme not in ALLOWED_THEMES:
+            raise HTTPException(status_code=400, detail="Theme must be 'dark', 'light', or 'system'.")
+        settings_row.theme = payload.theme
+
+    if payload.accent_color is not None:
+        if payload.accent_color not in ALLOWED_ACCENTS:
+            raise HTTPException(status_code=400, detail="Unsupported accent color.")
+        settings_row.accent_color = payload.accent_color
+
+    if payload.density is not None:
+        if payload.density not in ALLOWED_DENSITIES:
+            raise HTTPException(status_code=400, detail="Density must be 'comfortable', 'default', or 'compact'.")
+        settings_row.density = payload.density
+
+    if payload.container_log_limit is not None:
+        if payload.container_log_limit not in ALLOWED_LOG_LIMITS:
+            raise HTTPException(status_code=400, detail="Log limit must be 50, 100, 250, 500, 1000, or 2500 lines.")
+        settings_row.container_log_limit = payload.container_log_limit
+
+    if payload.log_refresh_interval is not None:
+        if payload.log_refresh_interval not in ALLOWED_LOG_REFRESH:
+            raise HTTPException(status_code=400, detail="Log refresh interval must be 0, 2, 5, 10, or 30 seconds.")
+        settings_row.log_refresh_interval = payload.log_refresh_interval
+
+    if payload.container_sort_by is not None:
+        if payload.container_sort_by not in ALLOWED_SORT_BY:
+            raise HTTPException(status_code=400, detail="Invalid container sort field.")
+        settings_row.container_sort_by = payload.container_sort_by
+
+    if payload.container_sort_order is not None:
+        if payload.container_sort_order not in ALLOWED_SORT_ORDER:
+            raise HTTPException(status_code=400, detail="Sort order must be 'asc' or 'desc'.")
+        settings_row.container_sort_order = payload.container_sort_order
+
+    if payload.auto_refresh_interval is not None:
+        if payload.auto_refresh_interval not in ALLOWED_REFRESH_INTERVALS:
+            raise HTTPException(status_code=400, detail="Refresh interval must be 0, 15, 30, 60, or 300 seconds.")
+        settings_row.auto_refresh_interval = payload.auto_refresh_interval
+
+    if payload.confirm_destructive is not None:
+        settings_row.confirm_destructive = bool(payload.confirm_destructive)
+
+    settings_row.updated_at = int(time.time())
+    session.add(settings_row)
+    session.commit()
+    session.refresh(settings_row)
+    return settings_row
+
+@app.post("/api/v1/settings/reset", response_model=AppSettings)
+def reset_app_settings(session: Session = Depends(get_session)):
+    ensure_appsettings_schema(session)
+    existing = session.get(AppSettings, "global")
+    if existing:
+        session.delete(existing)
+        session.commit()
+    fresh = AppSettings(id="global", updated_at=int(time.time()))
+    session.add(fresh)
+    session.commit()
+    session.refresh(fresh)
+    return fresh
+
+@app.get("/api/v1/integrations/docker/logs/{container_name}")
+def get_container_logs(
+    container_name: str,
+    tail: Optional[int] = None,
+    session: Session = Depends(get_session)
+):
+    cfg = get_or_create_settings(session)
+    line_limit = tail if (tail in ALLOWED_LOG_LIMITS) else (cfg.container_log_limit or 250)
+    conn = UnixSocketHTTPConnection("/var/run/docker.sock")
+    try:
+        conn.request("GET", f"/containers/{container_name}/logs?stdout=1&stderr=1&tail={line_limit}&timestamps=1")
+        res = conn.getresponse()
+        raw = res.read()
+        if res.status != 200:
+            raise HTTPException(status_code=res.status, detail=f"Docker daemon returned HTTP {res.status}")
+        cleaned_lines = []
+        for line in raw.split(b"\n"):
+            if len(line) > 8 and line[0] in (0, 1, 2) and line[1:4] == b"\x00\x00\x00":
+                line = line[8:]
+            text_line = line.decode("utf-8", errors="replace").strip()
+            if text_line:
+                cleaned_lines.append(text_line)
+        return {
+            "container": container_name,
+            "tail": line_limit,
+            "lines": cleaned_lines[-line_limit:],
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Unable to read container logs: {str(e)}")
+    finally:
+        conn.close()
+
+@app.get("/api/v1/account")
+def get_operator_account(session: Session = Depends(get_session)):
+    op = session.exec(select(Operator)).first()
+    if not op:
+        raise HTTPException(status_code=404, detail="Operator account not provisioned.")
+    return {
+        "username": op.username,
+        "created_at": op.created_at,
+        "active_sessions": len(VALID_SESSIONS),
+        "hash_algorithm": "PBKDF2-HMAC-SHA256 (100,000 iterations)",
+    }
+
+@app.put("/api/v1/account/credentials")
+def update_operator_credentials(
+    payload: CredentialsUpdatePayload,
+    request: Request,
+    session: Session = Depends(get_session)
+):
+    op = session.exec(select(Operator)).first()
+    if not op:
+        raise HTTPException(status_code=404, detail="Operator account not found.")
+
+    if not payload.current_password:
+        raise HTTPException(status_code=400, detail="Current operator password is required.")
+
+    computed_current = hash_secret(payload.current_password, op.salt)
+    if not secrets.compare_digest(computed_current, op.password_hash):
+        raise HTTPException(status_code=401, detail="Current operator password is incorrect.")
+
+    changed_fields = []
+
+    if payload.new_username is not None:
+        clean_user = payload.new_username.strip()
+        if clean_user and clean_user != op.username:
+            if len(clean_user) < 3 or len(clean_user) > 32:
+                raise HTTPException(status_code=400, detail="Username must be between 3 and 32 characters.")
+            if not all(c.isalnum() or c in "_-." for c in clean_user):
+                raise HTTPException(status_code=400, detail="Username may only contain letters, numbers, '_', '-', and '.'.")
+            op.username = clean_user
+            changed_fields.append("username")
+
+    if payload.new_password:
+        if len(payload.new_password) < 6:
+            raise HTTPException(status_code=400, detail="New password must be at least 6 characters.")
+        if payload.new_password != (payload.confirm_password or ""):
+            raise HTTPException(status_code=400, detail="New password and confirmation do not match.")
+        new_salt = secrets.token_hex(16)
+        op.salt = new_salt
+        op.password_hash = hash_secret(payload.new_password, new_salt)
+        changed_fields.append("password")
+
+    if not changed_fields:
+        raise HTTPException(status_code=400, detail="No credential changes were provided.")
+
+    session.add(op)
+    session.commit()
+
+    current_token = request.cookies.get("netdock_session")
+    if payload.revoke_other_sessions:
+        VALID_SESSIONS.clear()
+        if current_token:
+            VALID_SESSIONS.add(current_token)
+
+    return {
+        "status": "updated",
+        "username": op.username,
+        "updated_fields": changed_fields,
+        "active_sessions": len(VALID_SESSIONS),
+    }
+
+@app.post("/api/v1/account/sessions/revoke")
+def revoke_other_operator_sessions(request: Request):
+    current_token = request.cookies.get("netdock_session")
+    revoked_count = max(0, len(VALID_SESSIONS) - (1 if current_token in VALID_SESSIONS else 0))
+    VALID_SESSIONS.clear()
+    if current_token:
+        VALID_SESSIONS.add(current_token)
+    return {
+        "status": "revoked",
+        "revoked_sessions": revoked_count,
+        "active_sessions": len(VALID_SESSIONS),
+    }
+
+@app.get("/api/v1/system/info")
+def get_system_information(session: Session = Depends(get_session)):
+    db_file = "/data/netdock.db"
+    db_size = os.path.getsize(db_file) if os.path.exists(db_file) else 0
+
+    docker_ok = False
+    docker_err = None
+    sock_path = "/var/run/docker.sock"
+    try:
+        conn = UnixSocketHTTPConnection(sock_path)
+        conn.request("GET", "/_ping")
+        res = conn.getresponse()
+        docker_ok = (res.status == 200)
+        conn.close()
+    except Exception as e:
+        docker_err = str(e)
+
+    hosts_list = session.exec(select(Host)).all()
+    subnets_list = session.exec(select(Subnet)).all()
+    services_list = session.exec(select(Service)).all()
+
+    return {
+        "app_name": "NetDock",
+        "app_version": APP_VERSION,
+        "environment": "Production",
+        "api_status": "healthy",
+        "uptime_seconds": max(0, int(time.time()) - PROCESS_START_TIME),
+        "started_at": PROCESS_START_TIME,
+        "python_version": platform.python_version(),
+        "os_platform": f"{platform.system()} {platform.release()} ({platform.machine()})",
+        "database_path": db_file,
+        "database_size_bytes": db_size,
+        "docker_socket_path": sock_path,
+        "docker_status": "connected" if docker_ok else "unreachable",
+        "docker_error": docker_err,
+        "counts": {
+            "hosts": len(hosts_list),
+            "active_hosts": sum(1 for h in hosts_list if h.status == "active"),
+            "containers": sum(1 for h in hosts_list if h.device_type == "container"),
+            "subnets": len(subnets_list),
+            "services": len(services_list),
+            "active_sessions": len(VALID_SESSIONS),
+        },
+    }
 
 # --- Static Frontend Serving ---
 STATIC_DIR = "/app/static"

@@ -1,3 +1,4 @@
+import SettingsView, { DEFAULT_APP_SETTINGS, applyAppearanceToDocument } from './components/SettingsView';
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import {
   Network,
@@ -22,7 +23,8 @@ import {
   Cpu,
   HardDrive,
   ShieldCheck,
-  ChevronRight
+  ChevronRight,
+  Settings
 } from 'lucide-react';
 
 const API_BASE = '/api/v1';
@@ -404,7 +406,65 @@ export default function App() {
     });
   };
 
-  const [activeTab, setActiveTab] = useState('roster');
+  const [appSettings, setAppSettings] = useState(() => {
+    try {
+      const cached = localStorage.getItem('netdock_cached_settings');
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        applyAppearanceToDocument(parsed);
+        return { ...DEFAULT_APP_SETTINGS, ...parsed };
+      }
+    } catch (_) {}
+    return DEFAULT_APP_SETTINGS;
+  });
+  const [activeTab, setActiveTab] = useState(() => {
+    try {
+      const cached = localStorage.getItem('netdock_cached_settings');
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        if (parsed.default_tab && ['roster', 'subnets', 'topology'].includes(parsed.default_tab)) {
+          return parsed.default_tab;
+        }
+      }
+    } catch (_) {}
+    return 'roster';
+  });
+
+  useEffect(() => {
+    applyAppearanceToDocument(appSettings);
+    if (appSettings.theme === 'system' && window.matchMedia) {
+      const mq = window.matchMedia('(prefers-color-scheme: light)');
+      const listener = () => applyAppearanceToDocument(appSettings);
+      if (mq.addEventListener) mq.addEventListener('change', listener);
+      return () => {
+        if (mq.removeEventListener) mq.removeEventListener('change', listener);
+      };
+    }
+    return undefined;
+  }, [appSettings]);
+
+  useEffect(() => {
+    fetch('/api/v1/settings', { credentials: 'same-origin' })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        if (data) {
+          setAppSettings(data);
+          applyAppearanceToDocument(data);
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    const intervalSec = Number(appSettings?.auto_refresh_interval || 0);
+    if (!intervalSec || intervalSec <= 0) return undefined;
+    const timer = setInterval(() => {
+      if (!window.__netdock_logging_out && typeof fetchData === 'function') {
+        fetchData();
+      }
+    }, intervalSec * 1000);
+    return () => clearInterval(timer);
+  }, [appSettings?.auto_refresh_interval]);
   const [editingNotes, setEditingNotes] = useState(false);
   const [notesDraft, setNotesDraft] = useState('');
   const [syncingDocker, setSyncingDocker] = useState(false);
@@ -1225,7 +1285,8 @@ export default function App() {
               {[
                 { id: 'roster', label: 'Hosts & Nodes', icon: Server, count: hosts.length },
                 { id: 'subnets', label: 'Subnets & VLANs', icon: Layers, count: subnets.length },
-                { id: 'topology', label: 'Topology Tree', icon: Activity }
+                { id: 'topology', label: 'Topology Tree', icon: Activity },
+                { id: 'settings', label: 'Settings', icon: Settings }
               ].map((item) => {
                 const Icon = item.icon;
                 const isActive = activeTab === item.id;
@@ -1477,6 +1538,8 @@ export default function App() {
                   ? 'Hosts & Workloads'
                   : activeTab === 'subnets'
                   ? 'Subnets & VLANs'
+                  : activeTab === 'settings'
+                  ? 'System Settings'
                   : 'Network Topology'}
               </h1>
 
@@ -1632,7 +1695,7 @@ export default function App() {
               </>
             )}
 
-            {activeTab === 'subnets' ? (
+            {activeTab === 'settings' ? null : activeTab === 'subnets' ? (
               <button
                 type="button"
                 onClick={() => setShowSubnetModal(true)}
@@ -2348,6 +2411,27 @@ export default function App() {
                 )}
               </div>
             </div>
+          )}
+
+          {/* SETTINGS VIEW */}
+          {activeTab === 'settings' && (
+            <SettingsView
+              appSettings={appSettings}
+              hosts={hosts}
+              onUpdateSettings={(updated) => {
+                setAppSettings(updated);
+                applyAppearanceToDocument(updated);
+              }}
+              onNotify={(msg, isErr) => {
+                if (isErr) {
+                  setError(msg);
+                } else {
+                  setNotice(msg);
+                  setTimeout(() => setNotice(null), 4000);
+                }
+              }}
+              onRefreshData={fetchData}
+            />
           )}
 
           {/* TOPOLOGY VIEW */}
