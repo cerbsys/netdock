@@ -172,17 +172,214 @@ function ModalDialog({ title, subtitle, onClose, maxWidth = '480px', children })
   );
 }
 
+function LoggedOutLoginScreen() {
+  return (
+    <div
+      style={{
+        backgroundColor: '#0b0f17',
+        color: '#f1f5f9',
+        fontFamily: '-apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", Roboto, sans-serif',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        minHeight: '100vh',
+        padding: '1.5rem',
+        WebkitFontSmoothing: 'antialiased'
+      }}
+    >
+      <div
+        style={{
+          width: '100%',
+          maxWidth: '380px',
+          backgroundColor: '#0f1522',
+          border: '1px solid rgba(148, 163, 184, 0.14)',
+          borderRadius: '12px',
+          padding: '2rem',
+          boxShadow: '0 20px 40px rgba(0, 0, 0, 0.45)'
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '1.5rem' }}>
+          <div
+            style={{
+              width: '32px',
+              height: '32px',
+              backgroundColor: 'rgba(99, 102, 241, 0.14)',
+              border: '1px solid rgba(99, 102, 241, 0.35)',
+              borderRadius: '8px',
+              display: 'inline-flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              color: '#a5b4fc'
+            }}
+          >
+            <Network size={16} />
+          </div>
+          <span style={{ fontSize: '0.9375rem', fontWeight: 600, color: '#f8fafc' }}>NetDock</span>
+        </div>
+        <h1 style={{ fontSize: '1.125rem', fontWeight: 600, color: '#f8fafc', marginBottom: '0.375rem' }}>
+          Sign in to NetDock
+        </h1>
+        <p style={{ fontSize: '0.8125rem', color: '#94a3b8', lineHeight: 1.5, marginBottom: '1.5rem' }}>
+          Enter your operator credentials to access the infrastructure inventory.
+        </p>
+        <form method="POST" action="/auth/login">
+          <div style={{ marginBottom: '1rem' }}>
+            <label
+              htmlFor="username"
+              style={{ display: 'block', fontSize: '0.75rem', fontWeight: 500, color: '#cbd5e1', marginBottom: '0.375rem' }}
+            >
+              Username
+            </label>
+            <input
+              type="text"
+              id="username"
+              name="username"
+              placeholder="admin"
+              required
+              autoFocus
+              autoComplete="username"
+              style={{
+                width: '100%',
+                padding: '0.625rem 0.75rem',
+                backgroundColor: '#090d16',
+                border: '1px solid rgba(148, 163, 184, 0.2)',
+                borderRadius: '7px',
+                color: '#f8fafc',
+                fontSize: '0.875rem',
+                outline: 'none'
+              }}
+            />
+          </div>
+          <div style={{ marginBottom: '1.5rem' }}>
+            <label
+              htmlFor="password"
+              style={{ display: 'block', fontSize: '0.75rem', fontWeight: 500, color: '#cbd5e1', marginBottom: '0.375rem' }}
+            >
+              Operator key
+            </label>
+            <input
+              type="password"
+              id="password"
+              name="password"
+              placeholder="••••••••"
+              required
+              autoComplete="current-password"
+              style={{
+                width: '100%',
+                padding: '0.625rem 0.75rem',
+                backgroundColor: '#090d16',
+                border: '1px solid rgba(148, 163, 184, 0.2)',
+                borderRadius: '7px',
+                color: '#f8fafc',
+                fontSize: '0.875rem',
+                outline: 'none'
+              }}
+            />
+          </div>
+          <button
+            type="submit"
+            style={{
+              width: '100%',
+              padding: '0.625rem 1rem',
+              backgroundColor: '#6366f1',
+              color: '#ffffff',
+              border: 'none',
+              borderRadius: '7px',
+              fontSize: '0.8125rem',
+              fontWeight: 600,
+              cursor: 'pointer'
+            }}
+          >
+            Sign In
+          </button>
+        </form>
+      </div>
+    </div>
+  );
+}
+
 export default function App() {
-  const handleLogout = (e) => {
+  const [isAuthenticated, setIsAuthenticated] = useState(true);
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
+  const isLoggingOutRef = useRef(false);
+
+  const handleLogout = useCallback(async (e) => {
     if (e && typeof e.preventDefault === 'function') e.preventDefault();
+    if (e && typeof e.stopPropagation === 'function') e.stopPropagation();
+
+    if (isLoggingOutRef.current) return;
+    isLoggingOutRef.current = true;
     window.__netdock_logging_out = true;
+
+    // 1. Immediately switch React render to the Login screen (no empty dashboard flash!)
+    setIsLoggingOut(true);
+    setIsAuthenticated(false);
+
+    // 2. Purge client storage and replace browser history entry
     try {
       localStorage.clear();
       sessionStorage.clear();
-    } catch (err) {}
+    } catch (_) {}
     document.cookie = 'netdock_session=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;';
-    window.location.href = '/auth/logout';
-  };
+    try {
+      window.history.replaceState({ loggedOut: true }, 'NetDock — Sign In', '/auth/login');
+      document.title = 'NetDock — Sign In';
+    } catch (_) {}
+
+    // 3. Await backend session invalidation & cookie deletion
+    try {
+      await fetch('/auth/logout', {
+        method: 'POST',
+        credentials: 'same-origin',
+        cache: 'no-store'
+      });
+    } catch (_) {
+      // Ignore network/expired errors; client is already on the login screen
+    } finally {
+      // Clear cached state after the dashboard has already unmounted
+      setHosts([]);
+      setSubnets([]);
+      setSelectedHostId(null);
+    }
+  }, []);
+
+  useEffect(() => {
+    const origFetch = window.fetch;
+    window.fetch = async (...args) => {
+      const url = typeof args[0] === 'string' ? args[0] : (args[0]?.url || '');
+      if (window.__netdock_logging_out && url.includes('/api/')) {
+        return new Response('[]', { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      const res = await origFetch(...args);
+      if (url.includes('/api/') && !url.includes('/auth/') && res.status === 401) {
+        if (!isLoggingOutRef.current) {
+          isLoggingOutRef.current = true;
+          window.__netdock_logging_out = true;
+          setIsLoggingOut(true);
+          setIsAuthenticated(false);
+          try {
+            window.history.replaceState({ loggedOut: true }, 'NetDock — Sign In', '/auth/login');
+          } catch (_) {}
+        }
+      }
+      return res;
+    };
+
+    const handlePopState = () => {
+      if (window.__netdock_logging_out) {
+        setIsAuthenticated(false);
+        try {
+          window.history.replaceState({ loggedOut: true }, 'NetDock — Sign In', '/auth/login');
+        } catch (_) {}
+      }
+    };
+
+    window.addEventListener('popstate', handlePopState);
+    return () => {
+      window.fetch = origFetch;
+      window.removeEventListener('popstate', handlePopState);
+    };
+  }, []);
 
   const [hosts, setHosts] = useState([]);
   const [subnets, setSubnets] = useState([]);
@@ -859,6 +1056,10 @@ export default function App() {
       )}
     </div>
   );
+
+  if (!isAuthenticated || isLoggingOut) {
+    return <LoggedOutLoginScreen />;
+  }
 
   return (
     <div className="nd-app-shell">

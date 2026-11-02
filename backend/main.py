@@ -22,6 +22,13 @@ def hash_secret(secret: str, salt: str) -> str:
 
 VALID_SESSIONS = set()
 
+NO_CACHE_HEADERS = {
+    "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+    "Pragma": "no-cache",
+    "Expires": "0",
+    "Vary": "Cookie",
+}
+
 SETUP_HTML = """<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -338,20 +345,24 @@ async def security_barrier(request: Request, call_next):
     # If system is unprovisioned, route browser to setup wizard
     if not has_operator_account():
         if path.startswith("/api/"):
-            return Response(content='{"detail":"SETUP_REQUIRED"}', status_code=503, media_type="application/json")
-        return HTMLResponse(content=SETUP_HTML.replace("__ERROR_PLACEHOLDER__", ""), status_code=200)
+            return Response(content='{"detail":"SETUP_REQUIRED"}', status_code=503, media_type="application/json", headers=NO_CACHE_HEADERS)
+        return HTMLResponse(content=SETUP_HTML.replace("__ERROR_PLACEHOLDER__", ""), status_code=200, headers=NO_CACHE_HEADERS)
 
     # If system is provisioned, verify session token
     session_token = request.cookies.get("netdock_session")
     if session_token and session_token in VALID_SESSIONS:
-        return await call_next(request)
+        response = await call_next(request)
+        if not path.startswith("/assets/"):
+            for k, v in NO_CACHE_HEADERS.items():
+                response.headers[k] = v
+        return response
 
     # Deny unauthenticated API calls
     if path.startswith("/api/"):
-        return Response(content='{"detail":"UNAUTHORIZED_OPERATOR"}', status_code=401, media_type="application/json")
+        return Response(content='{"detail":"UNAUTHORIZED_OPERATOR"}', status_code=401, media_type="application/json", headers=NO_CACHE_HEADERS)
 
     # Serve login terminal
-    return HTMLResponse(content=LOGIN_HTML.replace("__ERROR_PLACEHOLDER__", ""), status_code=200)
+    return HTMLResponse(content=LOGIN_HTML.replace("__ERROR_PLACEHOLDER__", ""), status_code=200, headers=NO_CACHE_HEADERS)
 
 @app.post("/auth/setup")
 async def handle_setup(request: Request):
@@ -426,17 +437,33 @@ async def handle_login(request: Request):
     error_banner = '<div class="err-box">Invalid operator key. Please try again.</div>'
     return HTMLResponse(content=LOGIN_HTML.replace("__ERROR_PLACEHOLDER__", error_banner), status_code=401)
 
+@app.get("/auth/login")
+async def get_login_page(request: Request):
+    if not has_operator_account():
+        return RedirectResponse(url="/", status_code=303, headers=NO_CACHE_HEADERS)
+    session_token = request.cookies.get("netdock_session")
+    if session_token and session_token in VALID_SESSIONS:
+        return RedirectResponse(url="/", status_code=303, headers=NO_CACHE_HEADERS)
+    return HTMLResponse(content=LOGIN_HTML.replace("__ERROR_PLACEHOLDER__", ""), status_code=200, headers=NO_CACHE_HEADERS)
+
+@app.get("/api/v1/auth/session")
+def check_auth_session(request: Request):
+    session_token = request.cookies.get("netdock_session")
+    if session_token and session_token in VALID_SESSIONS:
+        return Response(content='{"authenticated":true}', media_type="application/json", headers=NO_CACHE_HEADERS)
+    return Response(content='{"authenticated":false}', status_code=401, media_type="application/json", headers=NO_CACHE_HEADERS)
+
 @app.api_route("/auth/logout", methods=["GET", "POST"])
+@app.api_route("/api/v1/auth/logout", methods=["GET", "POST"])
 def handle_logout(request: Request):
     token = request.cookies.get("netdock_session")
-    if token and token in VALID_SESSIONS:
+    if token:
         VALID_SESSIONS.discard(token)
     if request.method == "GET":
-        from fastapi.responses import RedirectResponse
-        response = RedirectResponse(url="/", status_code=303)
+        response = HTMLResponse(content=LOGIN_HTML.replace("__ERROR_PLACEHOLDER__", ""), status_code=200, headers=NO_CACHE_HEADERS)
     else:
-        response = Response(content='{"status":"logged_out"}', media_type="application/json")
-    response.delete_cookie(key="netdock_session", path="/")
+        response = Response(content='{"status":"logged_out","authenticated":false}', media_type="application/json", headers=NO_CACHE_HEADERS)
+    response.delete_cookie(key="netdock_session", path="/", httponly=True, samesite="lax")
     return response
 
 @app.on_event("startup")
@@ -688,4 +715,4 @@ if os.path.exists(STATIC_DIR):
         target = os.path.join(STATIC_DIR, full_path)
         if os.path.isfile(target):
             return FileResponse(target)
-        return FileResponse(os.path.join(STATIC_DIR, "index.html"))
+        return FileResponse(os.path.join(STATIC_DIR, "index.html"), headers=NO_CACHE_HEADERS)
