@@ -1870,19 +1870,6 @@ export default function SettingsView({
                   <ExternalLink size={13} />
                 </a>
 
-                <a
-                  href="/docs"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  style={{
-                    ...secondaryBtnStyle,
-                    textDecoration: 'none',
-                    justifyContent: 'space-between'
-                  }}
-                >
-                  <span>OpenAPI Documentation (/docs)</span>
-                  <ExternalLink size={13} />
-                </a>
               </div>
 
               <div className="nd-spec-list">
