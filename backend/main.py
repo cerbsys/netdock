@@ -1018,195 +1018,361 @@ def resolve_active_db_path() -> str:
     return "/data/inventory.db"
 
 
-def ensure_all_schemas_and_migrate() -> dict:
-    # Safely inspects and migrates the live SQLite database using a dedicated connection
-    # so it never conflicts with open SQLModel sessions.
+import threading as _threading
+
+_SCHEMA_MIGRATION_LOCK = _threading.Lock()
+_SCHEMA_MIGRATED_DONE = False
+
+if "DEFAULT_SETTINGS_DICT" in globals() and isinstance(DEFAULT_SETTINGS_DICT, dict):
+    DEFAULT_SETTINGS_DICT.setdefault("docker_parent_host", "")
+    DEFAULT_SETTINGS_DICT.setdefault("docker_socket_path", "/var/run/docker.sock")
+    DEFAULT_SETTINGS_DICT.setdefault("default_tab", "dashboard")
+    DEFAULT_SETTINGS_DICT.setdefault("app_name", "NetDock")
+    DEFAULT_SETTINGS_DICT.setdefault("environment_label", "Production")
+
+try:
+    from sqlalchemy import event as _sa_event
+    @_sa_event.listens_for(engine, "connect")
+    def _set_sqlite_pragma(dbapi_connection, connection_record):
+        cursor = dbapi_connection.cursor()
+        cursor.execute("PRAGMA journal_mode=WAL;")
+        cursor.execute("PRAGMA busy_timeout=30000;")
+        cursor.execute("PRAGMA synchronous=NORMAL;")
+        cursor.execute("PRAGMA foreign_keys=ON;")
+        cursor.close()
+except Exception as _pragma_exc:
+    logger.warning("Could not attach SQLAlchemy PRAGMA listener: %s", _pragma_exc)
+
+
+def open_sqlite_connection(readonly: bool = False, timeout: float = 30.0) -> sqlite3.Connection:
     db_file = resolve_active_db_path()
-    os.makedirs(os.path.dirname(os.path.abspath(db_file)), exist_ok=True)
-    migrations_applied = []
+    if readonly and os.path.exists(db_file):
+        uri = f"file:{db_file}?mode=ro"
+        conn = sqlite3.connect(uri, uri=True, timeout=timeout, check_same_thread=False)
+        conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA busy_timeout = 30000;")
+        return conn
+    conn = sqlite3.connect(db_file, timeout=timeout, check_same_thread=False)
+    conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA journal_mode = WAL;")
+    conn.execute("PRAGMA busy_timeout = 30000;")
+    conn.execute("PRAGMA synchronous = NORMAL;")
+    conn.execute("PRAGMA foreign_keys = ON;")
+    return conn
 
-    conn = sqlite3.connect(db_file, timeout=15.0)
-    try:
-        cur = conn.cursor()
-        cur.execute("PRAGMA journal_mode=WAL;")
-        cur.execute("PRAGMA busy_timeout=10000;")
 
-        # 1. Ensure all core tables exist
-        cur.execute("""
-            CREATE TABLE IF NOT EXISTS subnet (
-                id TEXT PRIMARY KEY,
-                name TEXT NOT NULL,
-                cidr TEXT NOT NULL,
-                gateway TEXT DEFAULT '',
-                vlan_id INTEGER DEFAULT NULL,
-                description TEXT DEFAULT ''
-            )
-        """)
-        cur.execute("""
-            CREATE TABLE IF NOT EXISTS host (
-                id TEXT PRIMARY KEY,
-                name TEXT DEFAULT '',
-                hostname TEXT NOT NULL,
-                device_category TEXT DEFAULT 'Servers and Computing',
-                device_type TEXT DEFAULT 'Physical Server',
-                manufacturer TEXT DEFAULT '',
-                model TEXT DEFAULT '',
-                ip TEXT NOT NULL,
-                ipv6 TEXT DEFAULT '',
-                mac TEXT DEFAULT '',
-                location TEXT DEFAULT '',
-                serial_number TEXT DEFAULT '',
-                firmware_version TEXT DEFAULT '',
-                os TEXT DEFAULT '',
-                status TEXT DEFAULT 'online',
-                subnet_id TEXT DEFAULT '',
-                parent_id TEXT DEFAULT NULL,
-                notes TEXT DEFAULT '',
-                specs_json TEXT DEFAULT '{}',
-                updated_at INTEGER DEFAULT 0
-            )
-        """)
-        cur.execute("""
-            CREATE TABLE IF NOT EXISTS service (
-                id TEXT PRIMARY KEY,
-                host_id TEXT NOT NULL,
-                name TEXT NOT NULL,
-                port INTEGER NOT NULL,
-                protocol TEXT DEFAULT 'TCP',
-                status TEXT DEFAULT 'running'
-            )
-        """)
-        cur.execute("""
-            CREATE TABLE IF NOT EXISTS operator (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                username TEXT NOT NULL UNIQUE,
-                password_hash TEXT NOT NULL,
-                salt TEXT NOT NULL,
-                created_at INTEGER DEFAULT 0
-            )
-        """)
-        cur.execute("""
-            CREATE TABLE IF NOT EXISTS customdevicetype (
-                id TEXT PRIMARY KEY,
-                name TEXT NOT NULL UNIQUE,
-                category TEXT DEFAULT 'Other',
-                icon_name TEXT DEFAULT 'Box',
-                fields_json TEXT DEFAULT '[]',
-                created_at INTEGER DEFAULT 0
-            )
-        """)
-        cur.execute("""
-            CREATE TABLE IF NOT EXISTS appsettings (
-                id TEXT PRIMARY KEY,
-                theme TEXT DEFAULT 'dark',
-                accent_color TEXT DEFAULT 'indigo',
-                density TEXT DEFAULT 'default',
-                container_log_limit INTEGER DEFAULT 250,
-                log_refresh_interval INTEGER DEFAULT 5,
-                container_sort_by TEXT DEFAULT 'hostname',
-                container_sort_order TEXT DEFAULT 'asc',
-                auto_refresh_interval INTEGER DEFAULT 0,
-                confirm_destructive INTEGER DEFAULT 1,
-                updated_at INTEGER DEFAULT 0
-            )
-        """)
-
-        # 2. Safely add any missing columns to existing tables without dropping data
-        table_migrations = {
-            "subnet": [
-                ("gateway", "TEXT DEFAULT ''"),
-                ("vlan_id", "INTEGER DEFAULT NULL"),
-                ("description", "TEXT DEFAULT ''"),
-            ],
-            "service": [
-                ("protocol", "TEXT DEFAULT 'TCP'"),
-                ("status", "TEXT DEFAULT 'running'"),
-            ],
-            "host": [
-                ("name", "TEXT DEFAULT ''"),
-                ("device_category", "TEXT DEFAULT 'Servers and Computing'"),
-                ("device_type", "TEXT DEFAULT 'Physical Server'"),
-                ("manufacturer", "TEXT DEFAULT ''"),
-                ("model", "TEXT DEFAULT ''"),
-                ("ipv6", "TEXT DEFAULT ''"),
-                ("mac", "TEXT DEFAULT ''"),
-                ("location", "TEXT DEFAULT ''"),
-                ("serial_number", "TEXT DEFAULT ''"),
-                ("firmware_version", "TEXT DEFAULT ''"),
-                ("os", "TEXT DEFAULT ''"),
-                ("status", "TEXT DEFAULT 'online'"),
-                ("subnet_id", "TEXT DEFAULT ''"),
-                ("parent_id", "TEXT DEFAULT NULL"),
-                ("notes", "TEXT DEFAULT ''"),
-                ("specs_json", "TEXT DEFAULT '{}'"),
-                ("updated_at", "INTEGER DEFAULT 0"),
-            ],
-            "customdevicetype": [
-                ("category", "TEXT DEFAULT 'Other'"),
-                ("icon_name", "TEXT DEFAULT 'Box'"),
-                ("fields_json", "TEXT DEFAULT '[]'"),
-                ("created_at", "INTEGER DEFAULT 0"),
-            ],
-            "appsettings": [
-                ("theme", "TEXT DEFAULT 'dark'"),
-                ("accent_color", "TEXT DEFAULT 'indigo'"),
-                ("density", "TEXT DEFAULT 'default'"),
-                ("container_log_limit", "INTEGER DEFAULT 250"),
-                ("log_refresh_interval", "INTEGER DEFAULT 5"),
-                ("container_sort_by", "TEXT DEFAULT 'hostname'"),
-                ("container_sort_order", "TEXT DEFAULT 'asc'"),
-                ("auto_refresh_interval", "INTEGER DEFAULT 0"),
-                ("confirm_destructive", "INTEGER DEFAULT 1"),
-                ("updated_at", "INTEGER DEFAULT 0"),
-            ],
-        }
-
-        for tbl, col_defs in table_migrations.items():
-            cur.execute(f"PRAGMA table_info({tbl})")
-            existing_cols = {row[1] for row in cur.fetchall()}
-            for col_name, col_spec in col_defs:
-                if col_name not in existing_cols:
-                    cur.execute(f"ALTER TABLE {tbl} ADD COLUMN {col_name} {col_spec}")
-                    migrations_applied.append(f"{tbl}.{col_name}")
-                    logger.info("Applied schema migration: added column %s.%s", tbl, col_name)
-
-        # Backfill empty host.name from hostname
+def run_with_db_retry(operation_name: str, fn, max_attempts: int = 4):
+    delay = 0.15
+    for attempt in range(1, max_attempts + 1):
         try:
-            cur.execute("UPDATE host SET name = hostname WHERE name IS NULL OR name = ''")
-        except Exception:
-            pass
-        try:
-            cur.execute("UPDATE host SET specs_json = '{}' WHERE specs_json IS NULL OR specs_json = ''")
-            conn.commit()
-        except Exception:
-            pass
-
-        # 3. Ensure default 'global' row exists in appsettings without overwriting existing settings
-        # Safely drop legacy NOT NULL columns from older appsettings schemas
-        for legacy_col in ("app_name", "environment_label", "app_title", "default_tab", "docker_socket_path", "app_version"):
-            try:
-                cur.execute(f"ALTER TABLE appsettings DROP COLUMN {legacy_col}")
-            except Exception:
-                pass
-
-        cur.execute("SELECT id FROM appsettings WHERE id = 'global'")
-        if not cur.fetchone():
-            now_ts = int(time.time())
-            try:
-                cur.execute(
-                    "INSERT INTO appsettings (id, theme, accent_color, density, container_log_limit, log_refresh_interval, container_sort_by, container_sort_order, auto_refresh_interval, confirm_destructive, updated_at) VALUES ('global', 'dark', 'indigo', 'default', 250, 5, 'hostname', 'asc', 0, 1, ?)",
-                    (now_ts,),
+            return fn()
+        except sqlite3.OperationalError as exc:
+            msg = str(exc).lower()
+            if ("locked" in msg or "busy" in msg) and attempt < max_attempts:
+                logger.warning(
+                    "[DB-LOCK] %s transient lock (attempt %d/%d): %s; retrying in %.2fs",
+                    operation_name, attempt, max_attempts, exc, delay
                 )
-            except Exception:
-                cur.execute("INSERT OR REPLACE INTO appsettings (id) VALUES ('global')")
-            migrations_applied.append("appsettings.init_global_row")
-            logger.info("Initialized default 'global' row in appsettings table.")
+                time.sleep(delay)
+                delay *= 2.0
+                continue
+            logger.error("[DB-ERROR] %s failed after %d attempts: %s", operation_name, attempt, exc)
+            raise
+        except sqlite3.IntegrityError as exc:
+            logger.error("[DB-CONSTRAINT] %s constraint violation: %s", operation_name, exc)
+            raise
 
-        conn.commit()
+
+def get_canonical_default_settings() -> dict:
+    base = dict(DEFAULT_SETTINGS_DICT) if "DEFAULT_SETTINGS_DICT" in globals() else {}
+    now_ts = int(time.time())
+    defaults = {
+        "id": "global",
+        "theme": "dark",
+        "accent_color": "indigo",
+        "density": "default",
+        "default_tab": "dashboard",
+        "app_name": "NetDock",
+        "app_title": "NetDock",
+        "environment_label": "Production",
+        "app_version": APP_VERSION if "APP_VERSION" in globals() else "1.4.0",
+        "docker_socket_path": "/var/run/docker.sock",
+        "docker_parent_host": "",
+        "container_log_limit": 250,
+        "log_refresh_interval": 5,
+        "container_sort_by": "hostname",
+        "container_sort_order": "asc",
+        "auto_refresh_interval": 0,
+        "confirm_destructive": 1,
+        "updated_at": now_ts,
+    }
+    defaults.update(base)
+    if defaults.get("docker_parent_host") is None:
+        defaults["docker_parent_host"] = ""
+    defaults["id"] = "global"
+    defaults["updated_at"] = now_ts
+    return defaults
+
+
+def build_schema_safe_appsettings_row(conn: sqlite3.Connection, overrides: dict = None) -> dict:
+    cur = conn.cursor()
+    cur.execute("PRAGMA table_info(appsettings)")
+    cols_info = [dict(r) for r in cur.fetchall()]
+    canonical = get_canonical_default_settings()
+    if overrides:
+        for k, v in overrides.items():
+            if v is not None:
+                canonical[k] = v
+
+    dph = canonical.get("docker_parent_host", "")
+    canonical["docker_parent_host"] = str(dph).strip() if dph is not None else ""
+
+    row_values = {}
+    for col in cols_info:
+        cname = col["name"]
+        ctype = (col.get("type") or "TEXT").upper()
+        dflt = col.get("dflt_value")
+        if cname in canonical and canonical[cname] is not None:
+            val = canonical[cname]
+            if isinstance(val, bool) and ("INT" in ctype or "BOOL" in ctype):
+                val = 1 if val else 0
+            row_values[cname] = val
+        elif dflt is not None:
+            cleaned = str(dflt).strip("'\"")
+            if "INT" in ctype:
+                try:
+                    row_values[cname] = int(cleaned)
+                except Exception:
+                    row_values[cname] = 0
+            else:
+                row_values[cname] = cleaned
+        else:
+            if "INT" in ctype or "BOOL" in ctype:
+                row_values[cname] = 0
+            elif "REAL" in ctype or "FLOA" in ctype or "DOUB" in ctype:
+                row_values[cname] = 0.0
+            else:
+                row_values[cname] = ""
+    row_values["id"] = "global"
+    return row_values
+
+
+def upsert_appsettings_row_on_conn(conn: sqlite3.Connection, target_values: dict) -> dict:
+    safe_row = build_schema_safe_appsettings_row(conn, target_values)
+    cols = list(safe_row.keys())
+    placeholders = ", ".join(["?" for _ in cols])
+    col_list_sql = ", ".join([f'"{c}"' for c in cols])
+    update_clause = ", ".join([f'"{c}" = excluded."{c}"' for c in cols if c != "id"])
+    sql = (
+        f'INSERT INTO appsettings ({col_list_sql}) VALUES ({placeholders}) '
+        f'ON CONFLICT(id) DO UPDATE SET {update_clause}'
+    )
+    cur = conn.cursor()
+    cur.execute(sql, [safe_row[c] for c in cols])
+    return safe_row
+
+
+def _demux_docker_log_stream(raw_bytes: bytes) -> str:
+    if not raw_bytes:
+        return ""
+    pos = 0
+    total = len(raw_bytes)
+    chunks = []
+    if total >= 8 and raw_bytes[0] in (0, 1, 2) and raw_bytes[1:4] == b"\x00\x00\x00":
+        while pos + 8 <= total:
+            frame_size = int.from_bytes(raw_bytes[pos + 4:pos + 8], byteorder="big")
+            pos += 8
+            if frame_size < 0 or pos + frame_size > total:
+                chunks.append(raw_bytes[pos - 8:].decode("utf-8", errors="replace"))
+                break
+            chunks.append(raw_bytes[pos:pos + frame_size].decode("utf-8", errors="replace"))
+            pos += frame_size
+        return "".join(chunks)
+    return raw_bytes.decode("utf-8", errors="replace")
+
+
+def fetch_container_logs_lock_free(container_ref: str, tail: int = None, timestamps: bool = False) -> dict:
+    socket_path = "/var/run/docker.sock"
+    default_tail = 250
+    resolved_target = (container_ref or "").strip()
+
+    try:
+        conn = open_sqlite_connection(readonly=True, timeout=5.0)
+        try:
+            cur = conn.cursor()
+            cur.execute("SELECT container_log_limit, docker_socket_path FROM appsettings WHERE id = 'global'")
+            s_row = cur.fetchone()
+            if s_row:
+                if s_row["container_log_limit"]:
+                    default_tail = int(s_row["container_log_limit"])
+                if s_row["docker_socket_path"]:
+                    socket_path = str(s_row["docker_socket_path"]).strip() or "/var/run/docker.sock"
+
+            if resolved_target.isdigit():
+                cur.execute("SELECT hostname, name, specs_json FROM host WHERE id = ?", (int(resolved_target),))
+                h_row = cur.fetchone()
+                if h_row:
+                    specs = json.loads(h_row["specs_json"] or "{}") if h_row["specs_json"] else {}
+                    resolved_target = (
+                        specs.get("container_id")
+                        or specs.get("container_name")
+                        or h_row["hostname"]
+                        or h_row["name"]
+                        or resolved_target
+                    )
+        finally:
+            conn.close()
+    except Exception as db_exc:
+        logger.warning("[DOCKER-LOGS] Settings lookup warning: %s", db_exc)
+
+    effective_tail = max(1, min(int(tail if tail is not None else default_tail), 5000))
+    if not resolved_target:
+        raise HTTPException(status_code=400, detail="Container identifier is required.")
+    if not os.path.exists(socket_path):
+        raise HTTPException(status_code=503, detail=f"Docker Engine socket is unavailable at {socket_path}.")
+
+    import urllib.parse
+    encoded_id = urllib.parse.quote(resolved_target, safe="")
+    ts_flag = "1" if timestamps else "0"
+
+    conn_http = UnixSocketHTTPConnection(socket_path, timeout=10.0)
+    try:
+        conn_http.request("GET", f"/containers/{encoded_id}/json")
+        inspect_resp = conn_http.getresponse()
+        inspect_raw = inspect_resp.read()
+        if inspect_resp.status == 404:
+            raise HTTPException(status_code=404, detail=f"Container '{resolved_target}' was not found in Docker Engine.")
+        if inspect_resp.status >= 400:
+            raise HTTPException(status_code=502, detail=f"Docker Engine returned HTTP {inspect_resp.status}.")
+        inspect_data = json.loads(inspect_raw.decode("utf-8", errors="replace") or "{}")
+        c_name = (inspect_data.get("Name") or "").lstrip("/") or resolved_target
+        c_state = (inspect_data.get("State") or {}).get("Status") or "unknown"
+        c_id = inspect_data.get("Id") or resolved_target
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=f"Could not connect to Docker Engine: {exc}")
     finally:
-        conn.close()
+        try:
+            conn_http.close()
+        except Exception:
+            pass
 
-    return {"db_path": db_file, "migrations_applied": migrations_applied}
+    conn_logs = UnixSocketHTTPConnection(socket_path, timeout=15.0)
+    try:
+        logs_path = f"/containers/{encoded_id}/logs?stdout=1&stderr=1&tail={effective_tail}&timestamps={ts_flag}"
+        conn_logs.request("GET", logs_path)
+        logs_resp = conn_logs.getresponse()
+        logs_raw = logs_resp.read()
+        if logs_resp.status == 404:
+            raise HTTPException(status_code=404, detail=f"Container '{resolved_target}' was not found.")
+        if logs_resp.status >= 400:
+            raise HTTPException(status_code=502, detail=f"Docker Engine returned HTTP {logs_resp.status} retrieving logs.")
+        decoded_logs = _demux_docker_log_stream(logs_raw)
+        log_lines = decoded_logs.splitlines() if decoded_logs else []
+        return {
+            "status": "ok",
+            "container_id": c_id,
+            "container_name": c_name,
+            "container_state": c_state,
+            "tail": effective_tail,
+            "timestamps": bool(timestamps),
+            "line_count": len(log_lines),
+            "logs": decoded_logs,
+            "lines": log_lines,
+            "empty": len(log_lines) == 0,
+            "message": "No log output available for this container." if len(log_lines) == 0 else "OK",
+        }
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=f"Failed retrieving container logs: {exc}")
+    finally:
+        try:
+            conn_logs.close()
+        except Exception:
+            pass
+
+
+def ensure_all_schemas_and_migrate(force: bool = False) -> dict:
+    global _SCHEMA_MIGRATED_DONE
+    db_file = resolve_active_db_path()
+    if _SCHEMA_MIGRATED_DONE and not force:
+        return {"db_path": db_file, "migrations_applied": [], "cached": True}
+
+    with _SCHEMA_MIGRATION_LOCK:
+        if _SCHEMA_MIGRATED_DONE and not force:
+            return {"db_path": db_file, "migrations_applied": [], "cached": True}
+
+        migrations_applied = []
+        os.makedirs(os.path.dirname(db_file), exist_ok=True)
+        try:
+            SQLModel.metadata.create_all(engine)
+        except Exception as exc:
+            logger.warning("[DB-MIGRATE] create_all warning: %s", exc)
+
+        def _migrate_step():
+            conn = open_sqlite_connection(readonly=False, timeout=30.0)
+            try:
+                cur = conn.cursor()
+                table_migrations = {
+                    "subnet": [
+                        ("gateway", "TEXT DEFAULT ''"),
+                        ("vlan_id", "INTEGER DEFAULT NULL"),
+                        ("description", "TEXT DEFAULT ''"),
+                    ],
+                    "service": [
+                        ("protocol", "TEXT DEFAULT 'TCP'"),
+                        ("status", "TEXT DEFAULT 'running'"),
+                    ],
+                    "appsettings": [
+                        ("theme", "TEXT NOT NULL DEFAULT 'dark'"),
+                        ("accent_color", "TEXT NOT NULL DEFAULT 'indigo'"),
+                        ("density", "TEXT NOT NULL DEFAULT 'default'"),
+                        ("docker_parent_host", "TEXT NOT NULL DEFAULT ''"),
+                        ("docker_socket_path", "TEXT NOT NULL DEFAULT '/var/run/docker.sock'"),
+                        ("default_tab", "TEXT NOT NULL DEFAULT 'dashboard'"),
+                        ("container_log_limit", "INTEGER NOT NULL DEFAULT 250"),
+                        ("log_refresh_interval", "INTEGER NOT NULL DEFAULT 5"),
+                        ("container_sort_by", "TEXT NOT NULL DEFAULT 'hostname'"),
+                        ("container_sort_order", "TEXT NOT NULL DEFAULT 'asc'"),
+                        ("auto_refresh_interval", "INTEGER NOT NULL DEFAULT 0"),
+                        ("confirm_destructive", "INTEGER NOT NULL DEFAULT 1"),
+                        ("updated_at", "INTEGER NOT NULL DEFAULT 0"),
+                    ],
+                }
+                for table_name, columns in table_migrations.items():
+                    cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name=?", (table_name,))
+                    if not cur.fetchone():
+                        continue
+                    cur.execute(f'PRAGMA table_info("{table_name}")')
+                    existing_cols = {row["name"] for row in cur.fetchall()}
+                    for col_name, col_def in columns:
+                        if col_name not in existing_cols:
+                            cur.execute(f'ALTER TABLE "{table_name}" ADD COLUMN "{col_name}" {col_def}')
+                            migrations_applied.append(f"{table_name}.{col_name}")
+
+                cur.execute("SELECT * FROM appsettings WHERE id = 'global'")
+                existing_row = cur.fetchone()
+                if not existing_row:
+                    upsert_appsettings_row_on_conn(conn, get_canonical_default_settings())
+                    migrations_applied.append("appsettings.init_global_row")
+                else:
+                    existing_dict = dict(existing_row)
+                    if existing_dict.get("docker_parent_host") is None:
+                        upsert_appsettings_row_on_conn(conn, existing_dict)
+                        migrations_applied.append("appsettings.repair_null_columns")
+                conn.commit()
+            except Exception:
+                conn.rollback()
+                raise
+            finally:
+                conn.close()
+
+        run_with_db_retry("ensure_all_schemas_and_migrate", _migrate_step)
+        _SCHEMA_MIGRATED_DONE = True
+        return {"db_path": db_file, "migrations_applied": migrations_applied, "cached": False}
+
 
 
 # Run schema verification immediately when module loads
@@ -1310,89 +1476,52 @@ def normalize_settings_dict(raw: dict) -> dict:
 
 def read_settings_from_sqlite() -> dict:
     ensure_all_schemas_and_migrate()
-    db_file = resolve_active_db_path()
-    conn = sqlite3.connect(db_file, timeout=15.0)
-    conn.row_factory = sqlite3.Row
-    try:
-        cur = conn.cursor()
-        cur.execute("SELECT * FROM appsettings WHERE id = 'global'")
-        row = cur.fetchone()
-        if not row:
-            cur.execute("SELECT * FROM appsettings LIMIT 1")
+    def _read():
+        conn = open_sqlite_connection(readonly=True, timeout=15.0)
+        try:
+            cur = conn.cursor()
+            cur.execute("SELECT * FROM appsettings WHERE id = 'global'")
             row = cur.fetchone()
-        if not row:
-            return normalize_settings_dict(DEFAULT_SETTINGS_DICT)
-        return normalize_settings_dict(dict(row))
-    except Exception as exc:
-        logger.exception("SQLite settings read error on %s: %s", db_file, exc)
-        raise HTTPException(status_code=500, detail=f"Unable to read application settings from database ({type(exc).__name__}).")
-    finally:
-        conn.close()
+            if row:
+                data = dict(row)
+                if data.get("docker_parent_host") is None:
+                    data["docker_parent_host"] = ""
+                return normalize_settings_dict(data) if "normalize_settings_dict" in globals() else data
+            return normalize_settings_dict(get_canonical_default_settings()) if "normalize_settings_dict" in globals() else get_canonical_default_settings()
+        finally:
+            conn.close()
+    return run_with_db_retry("read_settings_from_sqlite", _read)
 
 
-def write_settings_to_sqlite(updated: dict) -> dict:
+
+def write_settings_to_sqlite(new_settings: dict) -> dict:
     ensure_all_schemas_and_migrate()
-    clean = normalize_settings_dict(updated)
-    clean["updated_at"] = int(time.time())
-    db_file = resolve_active_db_path()
-    conn = sqlite3.connect(db_file, timeout=15.0)
-    try:
-        cur = conn.cursor()
-        cur.execute(
-            """
-            INSERT INTO appsettings (
-                id, theme, accent_color, density,
-                container_log_limit, log_refresh_interval,
-                container_sort_by, container_sort_order,
-                auto_refresh_interval, confirm_destructive, updated_at
-            ) VALUES (
-                'global', :theme, :accent_color, :density,
-                :container_log_limit, :log_refresh_interval,
-                :container_sort_by, :container_sort_order,
-                :auto_refresh_interval, :confirm_destructive, :updated_at
-            )
-            ON CONFLICT(id) DO UPDATE SET
-                theme = excluded.theme,
-                accent_color = excluded.accent_color,
-                density = excluded.density,
-                container_log_limit = excluded.container_log_limit,
-                log_refresh_interval = excluded.log_refresh_interval,
-                container_sort_by = excluded.container_sort_by,
-                container_sort_order = excluded.container_sort_order,
-                auto_refresh_interval = excluded.auto_refresh_interval,
-                confirm_destructive = excluded.confirm_destructive,
-                updated_at = excluded.updated_at
-            """,
-            {
-                "theme": clean["theme"],
-                "accent_color": clean["accent_color"],
-                "density": clean["density"],
-                "container_log_limit": clean["container_log_limit"],
-                "log_refresh_interval": clean["log_refresh_interval"],
-                "container_sort_by": clean["container_sort_by"],
-                "container_sort_order": clean["container_sort_order"],
-                "auto_refresh_interval": clean["auto_refresh_interval"],
-                "confirm_destructive": 1 if clean["confirm_destructive"] else 0,
-                "updated_at": clean["updated_at"],
-            },
-        )
-        conn.commit()
-        # Run passive checkpoint so settings are immediately flushed to the main DB file as well as WAL
-        cur.execute("PRAGMA wal_checkpoint(PASSIVE);")
-        logger.info(
-            "Saved settings to %s: theme=%s accent=%s density=%s",
-            db_file,
-            clean["theme"],
-            clean["accent_color"],
-            clean["density"],
-        )
-        return clean
-    except Exception as exc:
-        conn.rollback()
-        logger.exception("SQLite settings write error on %s: %s", db_file, exc)
-        raise HTTPException(status_code=500, detail=f"Failed to save application settings ({type(exc).__name__}).")
-    finally:
-        conn.close()
+    def _write():
+        conn = open_sqlite_connection(readonly=False, timeout=20.0)
+        try:
+            cur = conn.cursor()
+            cur.execute("SELECT * FROM appsettings WHERE id = 'global'")
+            existing = dict(cur.fetchone() or {})
+            merged = get_canonical_default_settings()
+            merged.update({k: v for k, v in existing.items() if v is not None})
+            if isinstance(new_settings, dict):
+                for k, v in new_settings.items():
+                    if v is not None:
+                        merged[k] = v
+            merged["id"] = "global"
+            merged["updated_at"] = int(time.time())
+            if merged.get("docker_parent_host") is None:
+                merged["docker_parent_host"] = ""
+            saved = upsert_appsettings_row_on_conn(conn, merged)
+            conn.commit()
+            return normalize_settings_dict(saved) if "normalize_settings_dict" in globals() else saved
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
+    return run_with_db_retry("write_settings_to_sqlite", _write)
+
 
 
 @app.get("/api/v1/settings")
@@ -1456,39 +1585,44 @@ def update_app_settings(payload: SettingsUpdatePayload):
 @app.post("/api/v1/settings/reset")
 def reset_app_settings():
     ensure_all_schemas_and_migrate()
-    db_file = resolve_active_db_path()
-    conn = sqlite3.connect(db_file, timeout=10.0)
-    try:
-        cur = conn.cursor()
-        cur.execute("DELETE FROM appsettings")
-        now_ts = int(time.time())
-        cur.execute(
-            "INSERT INTO appsettings (id, theme, accent_color, density, container_log_limit, log_refresh_interval, container_sort_by, container_sort_order, auto_refresh_interval, confirm_destructive, updated_at) VALUES ('global', 'dark', 'indigo', 'default', 250, 5, 'hostname', 'asc', 0, 1, ?)",
-            (now_ts,)
-        )
-        conn.commit()
-        logger.info("Reset application settings to factory defaults successfully.")
-    except Exception as exc:
-        conn.rollback()
-        logger.exception("Failed resetting application settings: %s", exc)
-        raise HTTPException(status_code=500, detail="Failed to reset application settings.")
-    finally:
-        conn.close()
-    return read_settings_from_sqlite()
+    def _do_reset():
+        conn = open_sqlite_connection(readonly=False, timeout=20.0)
+        try:
+            defaults = get_canonical_default_settings()
+            defaults["docker_parent_host"] = ""
+            defaults["updated_at"] = int(time.time())
+            saved_row = upsert_appsettings_row_on_conn(conn, defaults)
+            conn.commit()
+            return normalize_settings_dict(saved_row) if "normalize_settings_dict" in globals() else saved_row
+        except Exception as exc:
+            conn.rollback()
+            logger.exception("[DB-ROLLBACK] Failed resetting settings: %s", exc)
+            raise HTTPException(status_code=500, detail=f"Failed to reset application settings: {exc}")
+        finally:
+            conn.close()
+    return run_with_db_retry("reset_app_settings", _do_reset)
+
 
 
 def reset_app_settings():
-    db_file = resolve_active_db_path()
-    conn = sqlite3.connect(db_file, timeout=15.0)
-    try:
-        cur = conn.cursor()
-        cur.execute("DELETE FROM appsettings")
-        conn.commit()
-    except Exception:
-        pass
-    finally:
-        conn.close()
-    return write_settings_to_sqlite(dict(DEFAULT_SETTINGS_DICT))
+    ensure_all_schemas_and_migrate()
+    def _do_reset():
+        conn = open_sqlite_connection(readonly=False, timeout=20.0)
+        try:
+            defaults = get_canonical_default_settings()
+            defaults["docker_parent_host"] = ""
+            defaults["updated_at"] = int(time.time())
+            saved_row = upsert_appsettings_row_on_conn(conn, defaults)
+            conn.commit()
+            return normalize_settings_dict(saved_row) if "normalize_settings_dict" in globals() else saved_row
+        except Exception as exc:
+            conn.rollback()
+            logger.exception("[DB-ROLLBACK] Failed resetting settings: %s", exc)
+            raise HTTPException(status_code=500, detail=f"Failed to reset application settings: {exc}")
+        finally:
+            conn.close()
+    return run_with_db_retry("reset_app_settings", _do_reset)
+
 
 
 # --- Safe Value Serializer & Consistent SQLite Snapshot Backup/Restore ---
@@ -1509,6 +1643,20 @@ def sanitize_sqlite_value(val, table_name: str = "", col_name: str = ""):
 
 @app.get("/api/v1/backup/export")
 @app.get("/api/v1/export")
+
+def serialize_appsettings(row_or_dict=None) -> dict:
+    """Serialize or normalize settings database row/dict for JSON export."""
+    if hasattr(row_or_dict, "__dict__"):
+        d = {k: v for k, v in row_or_dict.__dict__.items() if not k.startswith("_")}
+    elif isinstance(row_or_dict, dict):
+        d = dict(row_or_dict)
+    else:
+        d = {}
+    if "normalize_settings_dict" in globals():
+        return normalize_settings_dict(d)
+    return d
+
+
 def export_json_backup(session: Session = Depends(get_session)):
     db_file = resolve_active_db_path()
 
@@ -1988,50 +2136,8 @@ def list_docker_engine_containers():
 
 
 @app.get("/api/v1/integrations/docker/logs/{container_name}")
-def get_container_logs(
-    container_name: str,
-    tail: Optional[int] = None,
-):
-    cfg = read_settings_from_sqlite()
-    line_limit = tail if (tail in ALLOWED_LOG_LIMITS) else (cfg.get("container_log_limit") or 250)
-    sock_path = "/var/run/docker.sock"
-    if not os.path.exists(sock_path):
-        raise HTTPException(status_code=503, detail="Docker socket (/var/run/docker.sock) is not mounted.")
-    conn = UnixSocketHTTPConnection(sock_path, timeout=5.0)
-    try:
-        conn.request(
-            "GET",
-            f"/containers/{container_name}/logs?stdout=1&stderr=1&tail={line_limit}&timestamps=1",
-            headers={"Host": "localhost"},
-        )
-        res = conn.getresponse()
-        raw = res.read()
-        if res.status != 200:
-            raise HTTPException(status_code=res.status, detail=f"Docker daemon returned HTTP {res.status}")
-        cleaned_lines = []
-        for line in raw.split(b"\n"):
-            if len(line) > 8 and line[0] in (0, 1, 2) and line[1:4] == b"\x00\x00\x00":
-                line = line[8:]
-            text_line = line.decode("utf-8", errors="replace").strip()
-            if text_line:
-                cleaned_lines.append(text_line)
-        return {
-            "container": container_name,
-            "tail": line_limit,
-            "lines": cleaned_lines[-line_limit:],
-        }
-    except HTTPException:
-        raise
-    except PermissionError:
-        raise HTTPException(
-            status_code=403,
-            detail="Permission denied accessing /var/run/docker.sock. Check container group ID (GID).",
-        )
-    except Exception as e:
-        logger.error("Error reading container logs for %s: %s", container_name, e)
-        raise HTTPException(status_code=500, detail="Unable to read container logs from Docker daemon.")
-    finally:
-        conn.close()
+def get_container_logs(container_name: str, tail: int = None, limit: int = None, lines: int = None, timestamps: bool = False):
+    return fetch_container_logs_lock_free(container_ref=container_name, tail=(tail or limit or lines), timestamps=timestamps)
 
 
 @app.get("/api/v1/account")
