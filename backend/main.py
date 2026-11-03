@@ -15,7 +15,7 @@ from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 from sqlmodel import Session, select
 
 from database import init_db, get_session, engine
-from models import Host, Subnet, Service, Operator, AppSettings
+from models import Host, Subnet, Service, Operator, AppSettings, CustomDeviceType
 
 def hash_secret(secret: str, salt: str) -> str:
     return hashlib.pbkdf2_hmac("sha256", secret.encode(), salt.encode(), 100000).hex()
@@ -471,11 +471,176 @@ def handle_logout(request: Request):
 @app.on_event("startup")
 def on_startup():
     init_db()
+    with Session(engine) as session:
+        ensure_host_inventory_schema(session)
+
+
+def infer_category_from_type(dev_type: str) -> str:
+    t = (dev_type or "").strip().lower()
+    if t in {
+        "router", "core switch", "access switch", "layer 2 switch", "layer 3 switch",
+        "switch", "firewall", "wireless access point", "wireless controller",
+        "network gateway", "modem", "load balancer", "vpn gateway"
+    }:
+        return "Network Infrastructure"
+    if t in {
+        "nvr (network video recorder)", "dvr (digital video recorder)", "ip camera",
+        "security camera system", "access control panel", "door controller", "alarm system"
+    }:
+        return "Security and Surveillance"
+    if t in {"network storage", "backup server", "storage array", "san controller"}:
+        return "Storage and Backup"
+    if t in {
+        "wireless bridge", "mesh node", "wireless repeater", "voip phone",
+        "pbx / voip server", "sip gateway", "cellular gateway"
+    }:
+        return "Wireless and Communication"
+    if t in {
+        "smart home hub", "iot gateway", "smart device", "printer",
+        "ups", "pdu", "environmental sensor", "other iot device"
+    }:
+        return "IoT and Smart Devices"
+    if t in {"other network device", "custom device type"}:
+        return "Other"
+    return "Servers and Computing"
+
+
+def ensure_host_inventory_schema(session: Session):
+    from sqlalchemy import text
+    subnet_columns = {
+        "gateway": ("TEXT", "''"),
+        "vlan_id": ("INTEGER", "NULL"),
+        "description": ("TEXT", "''"),
+    }
+    host_columns = {
+        "name": ("TEXT", "''"),
+        "device_category": ("TEXT", "'Servers and Computing'"),
+        "manufacturer": ("TEXT", "''"),
+        "model": ("TEXT", "''"),
+        "ipv6": ("TEXT", "''"),
+        "location": ("TEXT", "''"),
+        "serial_number": ("TEXT", "''"),
+        "firmware_version": ("TEXT", "''"),
+        "specs_json": ("TEXT", "'{}'"),
+        "updated_at": ("INTEGER", "0"),
+    }
+    try:
+        SQLModel.metadata.create_all(engine)
+
+        # Ensure subnet columns exist
+        s_rows = session.exec(text("PRAGMA table_info(subnet)")).all()
+        existing_subnet_cols = {r[1] for r in s_rows}
+        for col_name, (col_type, default_val) in subnet_columns.items():
+            if col_name not in existing_subnet_cols:
+                session.exec(
+                    text(f"ALTER TABLE subnet ADD COLUMN {col_name} {col_type} DEFAULT {default_val}")
+                )
+        session.commit()
+
+        # Ensure host columns exist
+        h_rows = session.exec(text("PRAGMA table_info(host)")).all()
+        existing_host_cols = {r[1] for r in h_rows}
+        for col_name, (col_type, default_val) in host_columns.items():
+            if col_name not in existing_host_cols:
+                session.exec(
+                    text(f"ALTER TABLE host ADD COLUMN {col_name} {col_type} DEFAULT {default_val}")
+                )
+        session.commit()
+
+        # Backfill legacy records
+        all_hosts = session.exec(select(Host)).all()
+        dirty = False
+        for h in all_hosts:
+            if not h.name:
+                h.name = h.hostname
+                dirty = True
+            if not h.device_category:
+                h.device_category = infer_category_from_type(h.device_type)
+                dirty = True
+            if h.specs_json is None or h.specs_json == "":
+                h.specs_json = "{}"
+                dirty = True
+        if dirty:
+            session.commit()
+    except Exception:
+        session.rollback()
+
+
+def validate_and_normalize_host(host: Host, session: Session, is_update: bool = False):
+    host.name = (host.name or host.hostname or "").strip()
+    host.hostname = (host.hostname or host.name or "").strip()
+    if not host.name:
+        raise HTTPException(status_code=400, detail="Device Name is required.")
+    if not host.device_type or not host.device_type.strip():
+        raise HTTPException(status_code=400, detail="Device Type is required.")
+
+    host.device_type = host.device_type.strip()
+    if not host.device_category or not host.device_category.strip():
+        host.device_category = infer_category_from_type(host.device_type)
+
+    host.ip = (host.ip or "").strip()
+    host.ipv6 = (host.ipv6 or "").strip()
+    host.mac = (host.mac or "").strip()
+    host.subnet_id = (host.subnet_id or "").strip()
+
+    # Validate IPv4 and optional Subnet membership
+    if host.ip:
+        try:
+            host_addr = ipaddress.IPv4Address(host.ip)
+        except ValueError:
+            raise HTTPException(status_code=400, detail=f"Invalid IPv4 address format: '{host.ip}'.")
+
+        if host.subnet_id:
+            subnet = session.get(Subnet, host.subnet_id)
+            if not subnet:
+                raise HTTPException(status_code=400, detail=f"Subnet '{host.subnet_id}' does not exist.")
+            net = ipaddress.IPv4Network(subnet.cidr, strict=False)
+            if host_addr not in net:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"IP {host.ip} does not fall within subnet {subnet.name} ({subnet.cidr})."
+                )
+            if net.num_addresses > 2:
+                if host_addr == net.network_address:
+                    raise HTTPException(status_code=400, detail=f"IP {host.ip} is the subnet network address.")
+                if host_addr == net.broadcast_address:
+                    raise HTTPException(status_code=400, detail=f"IP {host.ip} is the subnet broadcast address.")
+
+        if host.ip != "127.0.0.1":
+            existing_ip = session.exec(select(Host).where(Host.ip == host.ip)).first()
+            if existing_ip and existing_ip.id != host.id:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"IPv4 {host.ip} is already assigned to device '{existing_ip.name or existing_ip.hostname}'."
+                )
+
+    # Validate IPv6 if provided
+    if host.ipv6:
+        try:
+            ipaddress.IPv6Address(host.ipv6.split("/")[0])
+        except ValueError:
+            raise HTTPException(status_code=400, detail=f"Invalid IPv6 address format: '{host.ipv6}'.")
+
+    # Validate specs_json is valid JSON object string
+    if host.specs_json:
+        try:
+            parsed = json.loads(host.specs_json)
+            if not isinstance(parsed, dict):
+                host.specs_json = "{}"
+        except Exception:
+            host.specs_json = "{}"
+    else:
+        host.specs_json = "{}"
+
+    host.updated_at = int(time.time())
+
 
 # --- Subnet Routes ---
 @app.get("/api/v1/subnets", response_model=List[Subnet])
 def list_subnets(session: Session = Depends(get_session)):
+    ensure_host_inventory_schema(session)
     return session.exec(select(Subnet)).all()
+
 
 @app.post("/api/v1/subnets", response_model=Subnet)
 def create_subnet(subnet: Subnet, session: Session = Depends(get_session)):
@@ -483,6 +648,7 @@ def create_subnet(subnet: Subnet, session: Session = Depends(get_session)):
     session.commit()
     session.refresh(subnet)
     return subnet
+
 
 @app.delete("/api/v1/subnets/{subnet_id}")
 def delete_subnet(subnet_id: str, session: Session = Depends(get_session)):
@@ -492,81 +658,109 @@ def delete_subnet(subnet_id: str, session: Session = Depends(get_session)):
 
     assigned_hosts = session.exec(select(Host).where(Host.subnet_id == subnet_id)).all()
     if assigned_hosts:
-        hostnames = ", ".join(h.hostname for h in assigned_hosts)
+        hostnames = ", ".join((h.name or h.hostname) for h in assigned_hosts)
         raise HTTPException(
             status_code=400,
-            detail=f"Cannot delete subnet '{subnet.name}'. Assigned hosts exist: {hostnames}"
+            detail=f"Cannot delete subnet '{subnet.name}'. Assigned devices exist: {hostnames}"
         )
 
     session.delete(subnet)
     session.commit()
     return {"status": "deleted", "id": subnet_id}
 
-# --- Host Routes ---
+
+# --- Host / Network Device Routes ---
 @app.get("/api/v1/hosts", response_model=List[Host])
 def list_hosts(session: Session = Depends(get_session)):
+    ensure_host_inventory_schema(session)
     return session.exec(select(Host)).all()
+
 
 @app.post("/api/v1/hosts", response_model=Host)
 def create_host(host: Host, session: Session = Depends(get_session)):
-    subnet = session.get(Subnet, host.subnet_id)
-    if not subnet:
-        raise HTTPException(status_code=400, detail=f"Subnet '{host.subnet_id}' does not exist.")
-
-    net = ipaddress.IPv4Network(subnet.cidr, strict=True)
-    host_addr = ipaddress.IPv4Address(host.ip)
-
-    if host_addr not in net:
-        raise HTTPException(
-            status_code=400,
-            detail=f"IP {host.ip} does not fall within subnet {subnet.name} ({subnet.cidr})."
-        )
-
-    if host_addr == net.network_address:
-        raise HTTPException(
-            status_code=400,
-            detail=f"IP {host.ip} is the subnet network address (.0)."
-        )
-
-    if host_addr == net.broadcast_address:
-        raise HTTPException(
-            status_code=400,
-            detail=f"IP {host.ip} is the subnet broadcast address (.255)."
-        )
-
-    existing_ip = session.exec(select(Host).where(Host.ip == host.ip)).first()
-    if existing_ip:
-        raise HTTPException(
-            status_code=400,
-            detail=f"IP {host.ip} is already assigned to host '{existing_ip.hostname}'."
-        )
-
+    ensure_host_inventory_schema(session)
+    if not host.id:
+        host.id = f"dev-{secrets.token_hex(4)}"
+    validate_and_normalize_host(host, session, is_update=False)
     session.add(host)
     session.commit()
     session.refresh(host)
     return host
+
 
 @app.put("/api/v1/hosts/{host_id}", response_model=Host)
 def update_host(host_id: str, updated_data: Host, session: Session = Depends(get_session)):
+    ensure_host_inventory_schema(session)
     host = session.get(Host, host_id)
     if not host:
-        raise HTTPException(status_code=404, detail="Host not found")
+        raise HTTPException(status_code=404, detail="Device not found")
+
     host_data = updated_data.model_dump(exclude_unset=True)
     for key, value in host_data.items():
-        setattr(host, key, value)
+        if key != "id":
+            setattr(host, key, value)
+
+    validate_and_normalize_host(host, session, is_update=True)
     session.add(host)
     session.commit()
     session.refresh(host)
     return host
+
 
 @app.delete("/api/v1/hosts/{host_id}")
 def delete_host(host_id: str, session: Session = Depends(get_session)):
     host = session.get(Host, host_id)
     if not host:
-        raise HTTPException(status_code=404, detail="Host not found")
+        raise HTTPException(status_code=404, detail="Device not found")
     session.delete(host)
     session.commit()
     return {"status": "deleted", "id": host_id}
+
+
+# --- Custom Device Type Routes ---
+@app.get("/api/v1/device-types/custom", response_model=List[CustomDeviceType])
+def list_custom_device_types(session: Session = Depends(get_session)):
+    ensure_host_inventory_schema(session)
+    return session.exec(select(CustomDeviceType)).all()
+
+
+@app.post("/api/v1/device-types/custom", response_model=CustomDeviceType)
+def create_custom_device_type(custom_type: CustomDeviceType, session: Session = Depends(get_session)):
+    ensure_host_inventory_schema(session)
+    clean_name = (custom_type.name or "").strip()
+    if not clean_name:
+        raise HTTPException(status_code=400, detail="Custom device type name is required.")
+    existing = session.exec(select(CustomDeviceType).where(CustomDeviceType.name == clean_name)).first()
+    if existing:
+        raise HTTPException(status_code=400, detail=f"Custom device type '{clean_name}' already exists.")
+    custom_type.id = custom_type.id or f"cdt-{secrets.token_hex(4)}"
+    custom_type.name = clean_name
+    custom_type.category = (custom_type.category or "Other").strip()
+    custom_type.icon_name = (custom_type.icon_name or "Box").strip()
+    custom_type.created_at = int(time.time())
+    try:
+        parsed_fields = json.loads(custom_type.fields_json or "[]")
+        if not isinstance(parsed_fields, list):
+            custom_type.fields_json = "[]"
+    except Exception:
+        custom_type.fields_json = "[]"
+
+    session.add(custom_type)
+    session.commit()
+    session.refresh(custom_type)
+    return custom_type
+
+
+@app.delete("/api/v1/device-types/custom/{type_id}")
+def delete_custom_device_type(type_id: str, session: Session = Depends(get_session)):
+    ensure_host_inventory_schema(session)
+    target = session.get(CustomDeviceType, type_id)
+    if not target:
+        raise HTTPException(status_code=404, detail="Custom device type not found.")
+    session.delete(target)
+    session.commit()
+    return {"status": "deleted", "id": type_id}
+
 
 # --- Docker Raw Socket HTTP Client ---
 class UnixSocketHTTPConnection(http.client.HTTPConnection):
@@ -643,15 +837,21 @@ def sync_docker_containers(session: Session = Depends(get_session)):
             if not existing:
                 new_entry = Host(
                     id=f"cnt-{c.get('Id', '')[:10]}",
+                    name=name,
                     hostname=name,
+                    device_category="Servers and Computing",
+                    device_type="container",
+                    manufacturer="Docker",
+                    model=image_name,
                     ip=ip_address,
                     mac=mac_address,
                     os=f"Docker: {image_name}",
-                    device_type="container",
                     status=status,
                     subnet_id=matched_subnet_id,
                     parent_id=parent_target_id,
-                    notes=f"Auto-synced from Docker daemon. Epoch: {created_epoch}"
+                    notes=f"Auto-synced from Docker daemon. Epoch: {created_epoch}",
+                    specs_json=json.dumps({"docker_support": "Container Workload", "virtualization_platform": "Docker Engine", "container_image": image_name}),
+                    updated_at=int(time.time())
                 )
                 session.add(new_entry)
                 synced_hosts.append(name)

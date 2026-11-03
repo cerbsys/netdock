@@ -1,3 +1,12 @@
+import DeviceModal from './components/DeviceModal';
+import DeviceInspector from './components/DeviceInspector';
+import {
+  DEVICE_CATEGORIES,
+  getDeviceIconComponent,
+  getStatusBadgeMeta,
+  formatDeviceTypeLabel,
+  normalizeDeviceStatus
+} from './components/deviceCatalog';
 import SettingsView, { DEFAULT_APP_SETTINGS, applyAppearanceToDocument } from './components/SettingsView';
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import {
@@ -390,6 +399,14 @@ export default function App() {
   const [notice, setNotice] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('all');
+  const [typeFilter, setTypeFilter] = useState('all');
+  const [manufacturerFilter, setManufacturerFilter] = useState('all');
+  const [statusFilter, setStatusFilter] = useState('all');
+  const [sortField, setSortField] = useState('name');
+  const [sortOrder, setSortOrder] = useState('asc');
+  const [inventoryViewMode, setInventoryViewMode] = useState('table');
+  const [customDeviceTypes, setCustomDeviceTypes] = useState([]);
+  const [editingDevice, setEditingDevice] = useState(null);
   const [selectedHostId, setSelectedHostId] = useState(null);
   const [mobileInspectorOpen, setMobileInspectorOpen] = useState(false);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
@@ -771,18 +788,127 @@ export default function App() {
     );
   }, [newHost, hostErrors, subnets, hosts]);
 
+  const availableManufacturers = useMemo(() => {
+    const set = new Set();
+    hosts.forEach((h) => {
+      if (h.manufacturer && h.manufacturer.trim()) {
+        set.add(h.manufacturer.trim());
+      }
+    });
+    return Array.from(set).sort();
+  }, [hosts]);
+
+  const availableDeviceTypes = useMemo(() => {
+    const set = new Set();
+    hosts.forEach((h) => {
+      if (categoryFilter === 'all' || (h.device_category || 'Servers and Computing') === categoryFilter) {
+        if (h.device_type) set.add(formatDeviceTypeLabel(h.device_type));
+      }
+    });
+    return Array.from(set).sort();
+  }, [hosts, categoryFilter]);
+
   const filteredHosts = useMemo(() => {
-    const q = searchQuery.toLowerCase().trim();
-    return hosts.filter(
-      (h) =>
-        !q ||
-        h.hostname?.toLowerCase().includes(q) ||
-        h.ip?.includes(q) ||
-        h.mac?.toLowerCase().includes(q) ||
-        h.device_type?.toLowerCase().includes(q) ||
-        h.os?.toLowerCase().includes(q)
-    );
-  }, [hosts, searchQuery]);
+    const q = searchQuery.trim().toLowerCase();
+    return hosts
+      .filter((h) => {
+        const cat = h.device_category || 'Servers and Computing';
+        const devType = formatDeviceTypeLabel(h.device_type);
+        const normStatus = normalizeDeviceStatus(h.status);
+
+        if (categoryFilter !== 'all' && cat !== categoryFilter) return false;
+        if (typeFilter !== 'all' && devType !== typeFilter) return false;
+        if (manufacturerFilter !== 'all' && (h.manufacturer || '').trim() !== manufacturerFilter) return false;
+        if (statusFilter !== 'all' && normStatus !== statusFilter) return false;
+
+        if (!q) return true;
+        return (
+          (h.name || '').toLowerCase().includes(q) ||
+          (h.hostname || '').toLowerCase().includes(q) ||
+          (h.ip || '').toLowerCase().includes(q) ||
+          (h.ipv6 || '').toLowerCase().includes(q) ||
+          (h.mac || '').toLowerCase().includes(q) ||
+          (h.manufacturer || '').toLowerCase().includes(q) ||
+          (h.model || '').toLowerCase().includes(q) ||
+          (h.location || '').toLowerCase().includes(q) ||
+          devType.toLowerCase().includes(q) ||
+          cat.toLowerCase().includes(q)
+        );
+      })
+      .sort((a, b) => {
+        const dir = sortOrder === 'desc' ? -1 : 1;
+        if (sortField === 'ip') {
+          const intA = a.ip && IP_REGEX.test(a.ip) ? ipToInt(a.ip) : 0;
+          const intB = b.ip && IP_REGEX.test(b.ip) ? ipToInt(b.ip) : 0;
+          return (intA - intB) * dir;
+        }
+        if (sortField === 'device_type') {
+          return formatDeviceTypeLabel(a.device_type).localeCompare(formatDeviceTypeLabel(b.device_type)) * dir;
+        }
+        if (sortField === 'status') {
+          return normalizeDeviceStatus(a.status).localeCompare(normalizeDeviceStatus(b.status)) * dir;
+        }
+        const nameA = (a.name || a.hostname || '').toLowerCase();
+        const nameB = (b.name || b.hostname || '').toLowerCase();
+        return nameA.localeCompare(nameB) * dir;
+      });
+  }, [hosts, searchQuery, categoryFilter, typeFilter, manufacturerFilter, statusFilter, sortField, sortOrder]);
+
+  const notifyBanner = useCallback((msg) => {
+    setNotice(msg);
+    setTimeout(() => setNotice(null), 4000);
+  }, []);
+
+  const handleSaveDeviceModal = async (payload, isEdit) => {
+    const url = isEdit ? `${API_BASE}/hosts/${payload.id}` : `${API_BASE}/hosts`;
+    const method = isEdit ? 'PUT' : 'POST';
+    const res = await fetch(url, {
+      method,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      throw new Error(data.detail || 'Failed to save device.');
+    }
+    await fetchData();
+    setSelectedHostId(data.id);
+    notifyBanner(isEdit ? `Updated device "${data.name || data.hostname}".` : `Registered device "${data.name || data.hostname}".`);
+  };
+
+  const handleCreateCustomType = async (customPayload) => {
+    const res = await fetch(`${API_BASE}/device-types/custom`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(customPayload)
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      throw new Error(data.detail || 'Failed to create custom device type.');
+    }
+    setCustomDeviceTypes((prev) => [...prev, data]);
+    notifyBanner(`Created custom device type "${data.name}".`);
+    return data;
+  };
+
+  const handleDeleteCustomType = async (typeId) => {
+    const res = await fetch(`${API_BASE}/device-types/custom/${typeId}`, { method: 'DELETE' });
+    if (res.ok) {
+      setCustomDeviceTypes((prev) => prev.filter((t) => t.id !== typeId));
+    }
+  };
+
+  const handleSaveDeviceNotes = async (deviceObj, updatedNotes) => {
+    const res = await fetch(`${API_BASE}/hosts/${deviceObj.id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...deviceObj, notes: updatedNotes })
+    });
+    if (res.ok) {
+      await fetchData();
+      notifyBanner('Updated device documentation notes.');
+    }
+  };
 
   const physicalHosts = useMemo(
     () =>
@@ -1283,7 +1409,7 @@ export default function App() {
             )}
             <nav style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
               {[
-                { id: 'roster', label: 'Hosts & Nodes', icon: Server, count: hosts.length },
+                { id: 'roster', label: 'Network Devices', icon: Server, count: hosts.length },
                 { id: 'subnets', label: 'Subnets & VLANs', icon: Layers, count: subnets.length },
                 { id: 'topology', label: 'Topology Tree', icon: Activity },
                 { id: 'settings', label: 'Settings', icon: Settings }
@@ -1535,7 +1661,7 @@ export default function App() {
                 }}
               >
                 {activeTab === 'roster'
-                  ? 'Hosts & Workloads'
+                  ? 'Network Device Inventory'
                   : activeTab === 'subnets'
                   ? 'Subnets & VLANs'
                   : activeTab === 'settings'
@@ -1609,70 +1735,26 @@ export default function App() {
             )}
 
             {activeTab === 'roster' && (
-              <>
-                {/* Category Filter Segmented Control */}
-                <div
-                  className="hidden sm:flex"
-                  style={{
-                    backgroundColor: 'var(--bg-input)',
-                    border: '1px solid var(--border-subtle)',
-                    borderRadius: '7px',
-                    padding: '2px'
-                  }}
-                >
-                  {[
-                    { id: 'all', label: 'All' },
-                    { id: 'physical', label: 'Physical' },
-                    { id: 'virtual', label: 'Virtual' }
-                  ].map((tab) => (
-                    <button
-                      key={tab.id}
-                      type="button"
-                      onClick={() => setCategoryFilter(tab.id)}
-                      style={{
-                        border: 'none',
-                        padding: '4px 9px',
-                        borderRadius: '5px',
-                        fontSize: '11.5px',
-                        fontWeight: 500,
-                        cursor: 'pointer',
-                        backgroundColor:
-                          categoryFilter === tab.id ? 'var(--bg-elevated)' : 'transparent',
-                        color:
-                          categoryFilter === tab.id
-                            ? 'var(--text-primary)'
-                            : 'var(--text-muted)'
-                      }}
-                    >
-                      {tab.label}
-                    </button>
-                  ))}
-                </div>
-
-                {/* Search Box */}
-                <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                <div style={{ position: 'relative', width: '260px', maxWidth: '100%' }}>
                   <Search
                     size={14}
                     style={{
                       position: 'absolute',
                       left: '10px',
+                      top: '50%',
+                      transform: 'translateY(-50%)',
                       color: 'var(--text-muted)',
                       pointerEvents: 'none'
                     }}
                   />
                   <input
                     type="text"
-                    placeholder="Search host, IP, MAC..."
+                    placeholder="Search name, IP, MAC, model, hostname..."
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
                     className="nd-input"
-                    style={{
-                      paddingLeft: '30px',
-                      paddingRight: searchQuery ? '26px' : '10px',
-                      paddingTop: '6px',
-                      paddingBottom: '6px',
-                      width: '200px'
-                    }}
+                    style={{ paddingLeft: '30px', paddingRight: searchQuery ? '28px' : '10px', height: '32px', fontSize: '12px' }}
                   />
                   {searchQuery && (
                     <button
@@ -1681,7 +1763,9 @@ export default function App() {
                       style={{
                         position: 'absolute',
                         right: '8px',
-                        background: 'transparent',
+                        top: '50%',
+                        transform: 'translateY(-50%)',
+                        background: 'none',
                         border: 'none',
                         color: 'var(--text-muted)',
                         cursor: 'pointer',
@@ -1692,7 +1776,7 @@ export default function App() {
                     </button>
                   )}
                 </div>
-              </>
+              </div>
             )}
 
             {activeTab === 'settings' ? null : activeTab === 'subnets' ? (
@@ -1761,518 +1845,563 @@ export default function App() {
         <main className="nd-workspace-body">
           {activeTab === 'roster' && (
             <>
-              {/* CENTER PANEL: Host & Container List */}
+              {/* CENTER PANEL: Multi-Category Network Device Inventory */}
               <div className="nd-center-canvas">
+                {/* Filter, Sort & View Mode Toolbar */}
+                <div
+                  style={{
+                    backgroundColor: 'var(--bg-surface)',
+                    border: '1px solid var(--border-subtle)',
+                    borderRadius: '10px',
+                    padding: '12px 14px',
+                    marginBottom: '14px',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '10px'
+                  }}
+                >
+                  {/* Category Quick Pills */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', overflowX: 'auto', paddingBottom: '2px' }}>
+                    {[
+                      { id: 'all', label: `All Devices (${hosts.length})` },
+                      ...DEVICE_CATEGORIES.map((c) => ({
+                        id: c.id,
+                        label: `${c.label} (${hosts.filter((h) => (h.device_category || 'Servers and Computing') === c.id).length})`
+                      }))
+                    ].map((pill) => {
+                      const active = categoryFilter === pill.id;
+                      return (
+                        <button
+                          key={pill.id}
+                          type="button"
+                          onClick={() => {
+                            setCategoryFilter(pill.id);
+                            setTypeFilter('all');
+                          }}
+                          style={{
+                            padding: '5px 10px',
+                            borderRadius: '6px',
+                            border: active ? '1px solid var(--accent)' : '1px solid var(--border-subtle)',
+                            backgroundColor: active ? 'var(--accent-soft)' : 'var(--bg-elevated)',
+                            color: active ? 'var(--text-primary)' : 'var(--text-secondary)',
+                            fontSize: '11.5px',
+                            fontWeight: active ? 600 : 500,
+                            whiteSpace: 'nowrap',
+                            cursor: 'pointer'
+                          }}
+                        >
+                          {pill.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  {/* Secondary Filters: Device Type, Manufacturer, Status, Sort & Table/Grid Switcher */}
+                  <div
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      flexWrap: 'wrap',
+                      gap: '8px'
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
+                      <select
+                        value={typeFilter}
+                        onChange={(e) => setTypeFilter(e.target.value)}
+                        style={{
+                          padding: '5px 9px',
+                          borderRadius: '6px',
+                          border: '1px solid var(--border-subtle)',
+                          backgroundColor: 'var(--bg-input)',
+                          color: 'var(--text-primary)',
+                          fontSize: '12px'
+                        }}
+                      >
+                        <option value="all">All Device Types</option>
+                        {availableDeviceTypes.map((t) => (
+                          <option key={t} value={t}>
+                            {t}
+                          </option>
+                        ))}
+                      </select>
+
+                      <select
+                        value={manufacturerFilter}
+                        onChange={(e) => setManufacturerFilter(e.target.value)}
+                        style={{
+                          padding: '5px 9px',
+                          borderRadius: '6px',
+                          border: '1px solid var(--border-subtle)',
+                          backgroundColor: 'var(--bg-input)',
+                          color: 'var(--text-primary)',
+                          fontSize: '12px'
+                        }}
+                      >
+                        <option value="all">All Manufacturers</option>
+                        {availableManufacturers.map((m) => (
+                          <option key={m} value={m}>
+                            {m}
+                          </option>
+                        ))}
+                      </select>
+
+                      <select
+                        value={statusFilter}
+                        onChange={(e) => setStatusFilter(e.target.value)}
+                        style={{
+                          padding: '5px 9px',
+                          borderRadius: '6px',
+                          border: '1px solid var(--border-subtle)',
+                          backgroundColor: 'var(--bg-input)',
+                          color: 'var(--text-primary)',
+                          fontSize: '12px'
+                        }}
+                      >
+                        <option value="all">All Statuses</option>
+                        <option value="online">Online</option>
+                        <option value="offline">Offline</option>
+                        <option value="maintenance">Maintenance</option>
+                        <option value="unknown">Unknown</option>
+                      </select>
+
+                      {(categoryFilter !== 'all' ||
+                        typeFilter !== 'all' ||
+                        manufacturerFilter !== 'all' ||
+                        statusFilter !== 'all' ||
+                        searchQuery) && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setCategoryFilter('all');
+                            setTypeFilter('all');
+                            setManufacturerFilter('all');
+                            setStatusFilter('all');
+                            setSearchQuery('');
+                          }}
+                          style={{
+                            padding: '5px 9px',
+                            borderRadius: '6px',
+                            border: '1px solid var(--border-subtle)',
+                            backgroundColor: 'transparent',
+                            color: 'var(--accent)',
+                            fontSize: '11.5px',
+                            fontWeight: 600,
+                            cursor: 'pointer'
+                          }}
+                        >
+                          Clear Filters
+                        </button>
+                      )}
+                    </div>
+
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <select
+                        value={sortField}
+                        onChange={(e) => setSortField(e.target.value)}
+                        style={{
+                          padding: '5px 9px',
+                          borderRadius: '6px',
+                          border: '1px solid var(--border-subtle)',
+                          backgroundColor: 'var(--bg-input)',
+                          color: 'var(--text-primary)',
+                          fontSize: '12px'
+                        }}
+                      >
+                        <option value="name">Sort: Name</option>
+                        <option value="ip">Sort: IP Address</option>
+                        <option value="device_type">Sort: Device Type</option>
+                        <option value="status">Sort: Status</option>
+                      </select>
+
+                      <button
+                        type="button"
+                        onClick={() => setSortOrder((prev) => (prev === 'asc' ? 'desc' : 'asc'))}
+                        style={{
+                          padding: '5px 9px',
+                          borderRadius: '6px',
+                          border: '1px solid var(--border-subtle)',
+                          backgroundColor: 'var(--bg-elevated)',
+                          color: 'var(--text-primary)',
+                          fontSize: '11.5px',
+                          fontWeight: 600,
+                          cursor: 'pointer'
+                        }}
+                        title="Toggle ascending / descending sort"
+                      >
+                        {sortOrder === 'asc' ? '↑ Asc' : '↓ Desc'}
+                      </button>
+
+                      {/* Table vs Card Grid Switcher */}
+                      <div
+                        style={{
+                          display: 'inline-flex',
+                          borderRadius: '6px',
+                          border: '1px solid var(--border-subtle)',
+                          backgroundColor: 'var(--bg-input)',
+                          padding: '2px'
+                        }}
+                      >
+                        <button
+                          type="button"
+                          onClick={() => setInventoryViewMode('table')}
+                          style={{
+                            padding: '4px 9px',
+                            borderRadius: '4px',
+                            border: 'none',
+                            backgroundColor: inventoryViewMode === 'table' ? 'var(--accent)' : 'transparent',
+                            color: inventoryViewMode === 'table' ? '#ffffff' : 'var(--text-secondary)',
+                            fontSize: '11.5px',
+                            fontWeight: 600,
+                            cursor: 'pointer'
+                          }}
+                        >
+                          Table
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setInventoryViewMode('grid')}
+                          style={{
+                            padding: '4px 9px',
+                            borderRadius: '4px',
+                            border: 'none',
+                            backgroundColor: inventoryViewMode === 'grid' ? 'var(--accent)' : 'transparent',
+                            color: inventoryViewMode === 'grid' ? '#ffffff' : 'var(--text-secondary)',
+                            fontSize: '11.5px',
+                            fontWeight: 600,
+                            cursor: 'pointer'
+                          }}
+                        >
+                          Cards
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Empty State */}
                 {filteredHosts.length === 0 && !loading ? (
                   <div
                     style={{
-                      maxWidth: '460px',
-                      margin: '48px auto',
-                      padding: '36px 24px',
+                      maxWidth: '480px',
+                      margin: '42px auto',
+                      padding: '34px 24px',
                       textAlign: 'center',
                       backgroundColor: 'var(--bg-surface)',
                       border: '1px dashed var(--border-strong)',
                       borderRadius: '12px'
                     }}
                   >
-                    <Server
-                      size={28}
-                      style={{ color: 'var(--accent-text)', margin: '0 auto 12px' }}
-                    />
-                    <h3
-                      style={{
-                        margin: '0 0 6px',
-                        fontSize: '14px',
-                        fontWeight: 600,
-                        color: 'var(--text-primary)'
-                      }}
-                    >
-                      No matching hosts found
+                    <Server size={28} style={{ color: 'var(--text-muted)', marginBottom: '10px' }} />
+                    <h3 style={{ margin: '0 0 6px', fontSize: '14.5px', fontWeight: 600 }}>
+                      No matching network devices found
                     </h3>
-                    <p
-                      style={{
-                        margin: '0 0 18px',
-                        fontSize: '12.5px',
-                        color: 'var(--text-secondary)',
-                        lineHeight: 1.5
-                      }}
-                    >
-                      Provision a physical or virtual host manually, or synchronize active
-                      containers from the local Docker socket.
+                    <p style={{ margin: '0 0 18px', fontSize: '12.5px', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
+                      Register routers, switches, firewalls, access points, servers, NAS appliances, cameras, or synchronize active Docker workloads.
                     </p>
                     <div style={{ display: 'flex', justifyContent: 'center', gap: '10px' }}>
                       <button
                         type="button"
-                        onClick={() => setShowHostModal(true)}
+                        onClick={() => {
+                          setEditingDevice(null);
+                          setShowHostModal(true);
+                        }}
                         className="nd-btn-primary"
                       >
-                        <Plus size={14} />
-                        <span>Add Host</span>
+                        <Plus size={15} />
+                        <span>Add Device</span>
                       </button>
                       <button
                         type="button"
                         onClick={handleDockerSync}
-                        className="nd-btn-secondary"
+                        disabled={syncingDocker}
+                        style={{
+                          padding: '8px 14px',
+                          borderRadius: '7px',
+                          border: '1px solid var(--border-strong)',
+                          backgroundColor: 'var(--bg-elevated)',
+                          color: 'var(--text-primary)',
+                          fontSize: '12.5px',
+                          fontWeight: 500,
+                          cursor: 'pointer',
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '7px'
+                        }}
                       >
                         <RefreshCw size={14} />
                         <span>Sync Docker</span>
                       </button>
                     </div>
                   </div>
+                ) : inventoryViewMode === 'table' ? (
+                  /* TABLE VIEW */
+                  <div className="nd-table-card">
+                    <table className="nd-data-table">
+                      <thead>
+                        <tr>
+                          <th>Device Name</th>
+                          <th>Type & Category</th>
+                          <th className="hidden md:table-cell">Vendor / Model</th>
+                          <th>IP Address</th>
+                          <th className="hidden xl:table-cell">Location</th>
+                          <th style={{ textAlign: 'right' }}>Status</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {filteredHosts.map((h) => {
+                          const isSelected = h.id === selectedHostId;
+                          const DevIcon = getDeviceIconComponent(h.device_type, customDeviceTypes);
+                          const statusMeta = getStatusBadgeMeta(h.status);
+                          return (
+                            <tr
+                              key={h.id}
+                              onClick={() => {
+                                setSelectedHostId(h.id);
+                                setMobileInspectorOpen(true);
+                              }}
+                              className={isSelected ? 'nd-row-selected' : ''}
+                              style={{ cursor: 'pointer' }}
+                            >
+                              <td>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                  <div
+                                    style={{
+                                      width: '30px',
+                                      height: '30px',
+                                      borderRadius: '7px',
+                                      backgroundColor: isSelected ? 'var(--accent-soft)' : 'var(--bg-elevated)',
+                                      border: '1px solid var(--border-subtle)',
+                                      display: 'flex',
+                                      alignItems: 'center',
+                                      justifyContent: 'center',
+                                      color: isSelected ? 'var(--accent)' : 'var(--text-secondary)',
+                                      flexShrink: 0
+                                    }}
+                                  >
+                                    <DevIcon size={15} />
+                                  </div>
+                                  <div style={{ minWidth: 0 }}>
+                                    <div style={{ fontWeight: 600, color: 'var(--text-primary)' }}>
+                                      {h.name || h.hostname}
+                                    </div>
+                                    {h.hostname && h.name && h.hostname !== h.name && (
+                                      <div style={{ fontSize: '11px', color: 'var(--text-muted)', fontFamily: 'monospace' }}>
+                                        {h.hostname}
+                                      </div>
+                                    )}
+                                  </div>
+                                </div>
+                              </td>
+                              <td>
+                                <div style={{ fontWeight: 500, color: 'var(--text-primary)' }}>
+                                  {formatDeviceTypeLabel(h.device_type)}
+                                </div>
+                                <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+                                  {h.device_category || 'Servers and Computing'}
+                                </div>
+                              </td>
+                              <td className="hidden md:table-cell">
+                                {h.manufacturer || h.model ? (
+                                  <div>
+                                    <div style={{ color: 'var(--text-primary)', fontWeight: 500 }}>
+                                      {h.manufacturer || '—'}
+                                    </div>
+                                    {h.model && (
+                                      <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+                                        {h.model}
+                                      </div>
+                                    )}
+                                  </div>
+                                ) : (
+                                  <span style={{ color: 'var(--text-muted)' }}>—</span>
+                                )}
+                              </td>
+                              <td>
+                                <div style={{ fontFamily: 'monospace', fontWeight: 500 }}>
+                                  {h.ip || 'Unassigned'}
+                                </div>
+                                {h.mac && (
+                                  <div style={{ fontSize: '10.5px', color: 'var(--text-muted)', fontFamily: 'monospace' }}>
+                                    {h.mac}
+                                  </div>
+                                )}
+                              </td>
+                              <td className="hidden xl:table-cell" style={{ color: 'var(--text-secondary)' }}>
+                                {h.location || '—'}
+                              </td>
+                              <td style={{ textAlign: 'right' }}>
+                                <span
+                                  style={{
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: '5px',
+                                    fontSize: '11px',
+                                    fontWeight: 600,
+                                    padding: '3px 8px',
+                                    borderRadius: '999px',
+                                    backgroundColor: statusMeta.bg,
+                                    border: `1px solid ${statusMeta.border}`,
+                                    color: statusMeta.color
+                                  }}
+                                >
+                                  <span
+                                    style={{
+                                      width: '6px',
+                                      height: '6px',
+                                      borderRadius: '999px',
+                                      backgroundColor: statusMeta.color
+                                    }}
+                                  />
+                                  {statusMeta.label}
+                                </span>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
                 ) : (
-                  <div>
-                    {(categoryFilter === 'all' || categoryFilter === 'physical') &&
-                      renderHostSection(
-                        'Physical Infrastructure',
-                        'Bare-metal servers, switches, and SBC appliances',
-                        physicalHosts,
-                        'No physical hardware registered.'
-                      )}
+                  /* CARD / GRID VIEW */
+                  <div
+                    style={{
+                      display: 'grid',
+                      gridTemplateColumns: 'repeat(auto-fill, minmax(275px, 1fr))',
+                      gap: 'var(--nd-grid-gap, 14px)'
+                    }}
+                  >
+                    {filteredHosts.map((h) => {
+                      const isSelected = h.id === selectedHostId;
+                      const DevIcon = getDeviceIconComponent(h.device_type, customDeviceTypes);
+                      const statusMeta = getStatusBadgeMeta(h.status);
+                      return (
+                        <div
+                          key={h.id}
+                          onClick={() => {
+                            setSelectedHostId(h.id);
+                            setMobileInspectorOpen(true);
+                          }}
+                          style={{
+                            backgroundColor: 'var(--bg-surface)',
+                            border: isSelected
+                              ? '2px solid var(--accent)'
+                              : '1px solid var(--border-subtle)',
+                            borderRadius: '10px',
+                            padding: 'var(--nd-card-pad, 16px)',
+                            cursor: 'pointer',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            gap: '12px'
+                          }}
+                        >
+                          <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '8px' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', minWidth: 0 }}>
+                              <div
+                                style={{
+                                  width: '34px',
+                                  height: '34px',
+                                  borderRadius: '8px',
+                                  backgroundColor: 'var(--accent-soft)',
+                                  border: '1px solid var(--border-subtle)',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                                  color: 'var(--accent)',
+                                  flexShrink: 0
+                                }}
+                              >
+                                <DevIcon size={17} />
+                              </div>
+                              <div style={{ minWidth: 0 }}>
+                                <div
+                                  className="nd-truncate"
+                                  style={{ fontSize: '13.5px', fontWeight: 600, color: 'var(--text-primary)' }}
+                                >
+                                  {h.name || h.hostname}
+                                </div>
+                                <div className="nd-truncate" style={{ fontSize: '11.5px', color: 'var(--text-secondary)' }}>
+                                  {formatDeviceTypeLabel(h.device_type)}
+                                </div>
+                              </div>
+                            </div>
+                            <span
+                              style={{
+                                fontSize: '10.5px',
+                                fontWeight: 600,
+                                padding: '2px 7px',
+                                borderRadius: '999px',
+                                backgroundColor: statusMeta.bg,
+                                border: `1px solid ${statusMeta.border}`,
+                                color: statusMeta.color,
+                                flexShrink: 0
+                              }}
+                            >
+                              {statusMeta.label}
+                            </span>
+                          </div>
 
-                    {(categoryFilter === 'all' || categoryFilter === 'virtual') &&
-                      renderHostSection(
-                        'Virtual Workloads & Containers',
-                        'Docker containers and virtual machines',
-                        virtualHosts,
-                        'No virtual workloads or containers recorded.'
-                      )}
+                          <div
+                            style={{
+                              display: 'grid',
+                              gridTemplateColumns: '1fr 1fr',
+                              gap: '8px',
+                              paddingTop: '10px',
+                              borderTop: '1px solid var(--border-subtle)',
+                              fontSize: '11.5px'
+                            }}
+                          >
+                            <div>
+                              <div style={{ color: 'var(--text-muted)', fontSize: '10.5px' }}>IP ADDRESS</div>
+                              <div style={{ fontFamily: 'monospace', fontWeight: 600, marginTop: '2px' }}>
+                                {h.ip || 'Unassigned'}
+                              </div>
+                            </div>
+                            <div>
+                              <div style={{ color: 'var(--text-muted)', fontSize: '10.5px' }}>VENDOR / MODEL</div>
+                              <div className="nd-truncate" style={{ fontWeight: 500, marginTop: '2px' }}>
+                                {[h.manufacturer, h.model].filter(Boolean).join(' ') || '—'}
+                              </div>
+                            </div>
+                            {h.location && (
+                              <div style={{ gridColumn: '1 / -1' }}>
+                                <div style={{ color: 'var(--text-muted)', fontSize: '10.5px' }}>LOCATION</div>
+                                <div className="nd-truncate" style={{ marginTop: '2px', color: 'var(--text-secondary)' }}>
+                                  {h.location}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
                   </div>
                 )}
               </div>
 
-              {/* RIGHT PANEL: Host Details Inspector */}
-              <aside
-                className={`nd-inspector-panel ${
-                  !mobileInspectorOpen ? 'is-hidden-mobile' : ''
-                }`}
-              >
-                {selectedHost ? (
-                  <div style={{ padding: '22px 20px', display: 'flex', flexDirection: 'column', gap: '22px' }}>
-                    {/* 1. Overview Header */}
-                    <div
-                      style={{
-                        paddingBottom: '16px',
-                        borderBottom: '1px solid var(--border-subtle)'
-                      }}
-                    >
-                      <div
-                        style={{
-                          display: 'flex',
-                          alignItems: 'flex-start',
-                          justifyContent: 'space-between',
-                          gap: '10px'
-                        }}
-                      >
-                        <div style={{ minWidth: 0, flex: 1 }}>
-                          <div
-                            style={{
-                              display: 'flex',
-                              alignItems: 'center',
-                              gap: '8px',
-                              marginBottom: '6px',
-                              flexWrap: 'wrap'
-                            }}
-                          >
-                            <span
-                              style={{
-                                display: 'inline-flex',
-                                alignItems: 'center',
-                                gap: '5px',
-                                fontSize: '11px',
-                                fontWeight: 600,
-                                textTransform: 'uppercase',
-                                letterSpacing: '0.04em',
-                                padding: '2px 8px',
-                                borderRadius: '999px',
-                                backgroundColor:
-                                  selectedHost.status === 'active'
-                                    ? 'var(--status-emerald-soft)'
-                                    : 'var(--status-rose-soft)',
-                                color:
-                                  selectedHost.status === 'active' ? '#34d399' : '#fb7185'
-                              }}
-                            >
-                              <span
-                                style={{
-                                  width: '6px',
-                                  height: '6px',
-                                  borderRadius: '50%',
-                                  backgroundColor:
-                                    selectedHost.status === 'active'
-                                      ? 'var(--status-emerald)'
-                                      : 'var(--status-rose)'
-                                }}
-                              />
-                              {selectedHost.status}
-                            </span>
-
-                            <span
-                              style={{
-                                fontSize: '11px',
-                                fontWeight: 500,
-                                textTransform: 'capitalize',
-                                padding: '2px 8px',
-                                borderRadius: '999px',
-                                backgroundColor: 'var(--accent-soft)',
-                                color: 'var(--accent-text)'
-                              }}
-                            >
-                              {selectedHost.device_type}
-                            </span>
-                          </div>
-
-                          <h2
-                            className="nd-break-words"
-                            style={{
-                              margin: 0,
-                              fontSize: '17px',
-                              fontWeight: 600,
-                              color: '#ffffff',
-                              lineHeight: 1.3
-                            }}
-                          >
-                            {selectedHost.hostname}
-                          </h2>
-                          <p
-                            className="nd-break-words"
-                            style={{
-                              margin: '4px 0 0',
-                              fontSize: '12px',
-                              color: 'var(--text-secondary)'
-                            }}
-                          >
-                            {selectedHost.os || 'Linux System'}
-                          </p>
-                        </div>
-
-                        {/* Close button on tablet/mobile overlay */}
-                        <button
-                          type="button"
-                          onClick={() => setMobileInspectorOpen(false)}
-                          className="xl:hidden"
-                          style={{
-                            background: 'var(--bg-surface)',
-                            border: '1px solid var(--border-subtle)',
-                            color: 'var(--text-secondary)',
-                            padding: '5px',
-                            borderRadius: '6px',
-                            cursor: 'pointer',
-                            flexShrink: 0
-                          }}
-                          title="Close inspector"
-                        >
-                          <X size={15} />
-                        </button>
-                      </div>
-                    </div>
-
-                    {/* 2. Network & System Specifications */}
-                    <div>
-                      <div
-                        style={{
-                          fontSize: '11px',
-                          fontWeight: 600,
-                          textTransform: 'uppercase',
-                          letterSpacing: '0.06em',
-                          color: 'var(--text-muted)',
-                          marginBottom: '8px'
-                        }}
-                      >
-                        Network & Specifications
-                      </div>
-
-                      <div className="nd-spec-list">
-                        <div className="nd-spec-row">
-                          <span className="nd-spec-label">IPv4 Address</span>
-                          <div className="nd-spec-value">
-                            <span style={{ fontFamily: 'monospace', fontWeight: 600 }}>
-                              {selectedHost.ip}
-                            </span>
-                            <button
-                              type="button"
-                              onClick={() => copyToClipboard(selectedHost.ip, 'ip')}
-                              title="Copy IP"
-                              style={{
-                                background: 'transparent',
-                                border: 'none',
-                                color:
-                                  copiedField === 'ip'
-                                    ? 'var(--status-emerald)'
-                                    : 'var(--text-muted)',
-                                cursor: 'pointer',
-                                padding: '2px',
-                                display: 'flex',
-                                flexShrink: 0
-                              }}
-                            >
-                              {copiedField === 'ip' ? <Check size={13} /> : <Copy size={13} />}
-                            </button>
-                          </div>
-                        </div>
-
-                        <div className="nd-spec-row">
-                          <span className="nd-spec-label">MAC Address</span>
-                          <div className="nd-spec-value">
-                            <span
-                              style={{
-                                fontFamily: 'monospace',
-                                color: selectedHost.mac
-                                  ? 'var(--text-primary)'
-                                  : 'var(--text-muted)'
-                              }}
-                            >
-                              {selectedHost.mac || 'Not recorded'}
-                            </span>
-                            {selectedHost.mac && (
-                              <button
-                                type="button"
-                                onClick={() => copyToClipboard(selectedHost.mac, 'mac')}
-                                title="Copy MAC"
-                                style={{
-                                  background: 'transparent',
-                                  border: 'none',
-                                  color:
-                                    copiedField === 'mac'
-                                      ? 'var(--status-emerald)'
-                                      : 'var(--text-muted)',
-                                  cursor: 'pointer',
-                                  padding: '2px',
-                                  display: 'flex',
-                                  flexShrink: 0
-                                }}
-                              >
-                                {copiedField === 'mac' ? <Check size={13} /> : <Copy size={13} />}
-                              </button>
-                            )}
-                          </div>
-                        </div>
-
-                        <div className="nd-spec-row">
-                          <span className="nd-spec-label">Device Class</span>
-                          <div className="nd-spec-value" style={{ textTransform: 'capitalize' }}>
-                            {selectedHost.device_type}
-                          </div>
-                        </div>
-
-                        <div className="nd-spec-row">
-                          <span className="nd-spec-label">OS / Kernel</span>
-                          <div className="nd-spec-value">
-                            {selectedHost.os || 'Linux'}
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* 3. Subnet & Hierarchy Information */}
-                    <div>
-                      <div
-                        style={{
-                          fontSize: '11px',
-                          fontWeight: 600,
-                          textTransform: 'uppercase',
-                          letterSpacing: '0.06em',
-                          color: 'var(--text-muted)',
-                          marginBottom: '8px'
-                        }}
-                      >
-                        Subnet & Topology
-                      </div>
-
-                      <div className="nd-spec-list">
-                        <div className="nd-spec-row">
-                          <span className="nd-spec-label">Subnet</span>
-                          <div className="nd-spec-value">
-                            {selectedSubnet ? selectedSubnet.name : selectedHost.subnet_id || '—'}
-                          </div>
-                        </div>
-
-                        {selectedSubnet && (
-                          <>
-                            <div className="nd-spec-row">
-                              <span className="nd-spec-label">CIDR / VLAN</span>
-                              <div className="nd-spec-value" style={{ fontFamily: 'monospace' }}>
-                                {selectedSubnet.cidr} · VLAN {selectedSubnet.vlan}
-                              </div>
-                            </div>
-                            <div className="nd-spec-row">
-                              <span className="nd-spec-label">Gateway</span>
-                              <div className="nd-spec-value" style={{ fontFamily: 'monospace' }}>
-                                {selectedSubnet.gateway}
-                              </div>
-                            </div>
-                          </>
-                        )}
-
-                        <div className="nd-spec-row">
-                          <span className="nd-spec-label">Parent Node</span>
-                          <div className="nd-spec-value">
-                            {selectedParent ? (
-                              <button
-                                type="button"
-                                onClick={() => setSelectedHostId(selectedParent.id)}
-                                style={{
-                                  background: 'var(--accent-soft)',
-                                  border: '1px solid rgba(99, 102, 241, 0.3)',
-                                  color: 'var(--accent-text)',
-                                  padding: '2px 8px',
-                                  borderRadius: '5px',
-                                  fontSize: '12px',
-                                  cursor: 'pointer',
-                                  maxWidth: '100%',
-                                  overflow: 'hidden',
-                                  textOverflow: 'ellipsis',
-                                  whiteSpace: 'nowrap'
-                                }}
-                              >
-                                {selectedParent.hostname}
-                              </button>
-                            ) : (
-                              <span style={{ color: 'var(--text-secondary)' }}>
-                                Standalone Node
-                              </span>
-                            )}
-                          </div>
-                        </div>
-
-                        {hostedChildrenCount > 0 && (
-                          <div className="nd-spec-row">
-                            <span className="nd-spec-label">Child Workloads</span>
-                            <div className="nd-spec-value">
-                              <span style={{ fontFamily: 'monospace', color: 'var(--accent-text)' }}>
-                                {hostedChildrenCount} hosted
-                              </span>
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-
-                    {/* 4. Runbook & Notes */}
-                    <div>
-                      <div
-                        style={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'space-between',
-                          marginBottom: '8px'
-                        }}
-                      >
-                        <span
-                          style={{
-                            fontSize: '11px',
-                            fontWeight: 600,
-                            textTransform: 'uppercase',
-                            letterSpacing: '0.06em',
-                            color: 'var(--text-muted)'
-                          }}
-                        >
-                          Runbook & Notes
-                        </span>
-
-                        {editingNotes ? (
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                            <button
-                              type="button"
-                              onClick={() => setEditingNotes(false)}
-                              className="nd-btn-secondary"
-                              style={{ padding: '3px 8px', fontSize: '11.5px' }}
-                            >
-                              Cancel
-                            </button>
-                            <button
-                              type="button"
-                              onClick={handleSaveNotes}
-                              className="nd-btn-primary"
-                              style={{ padding: '3px 10px', fontSize: '11.5px' }}
-                            >
-                              Save
-                            </button>
-                          </div>
-                        ) : (
-                          <button
-                            type="button"
-                            onClick={() => setEditingNotes(true)}
-                            className="nd-btn-secondary"
-                            style={{ padding: '3px 8px', fontSize: '11.5px' }}
-                          >
-                            <Edit3 size={12} />
-                            <span>Edit</span>
-                          </button>
-                        )}
-                      </div>
-
-                      {editingNotes ? (
-                        <textarea
-                          rows={7}
-                          value={notesDraft}
-                          onChange={(e) => setNotesDraft(e.target.value)}
-                          placeholder="Document exposed ports, reverse proxy routes, or maintenance steps..."
-                          className="nd-input"
-                          style={{
-                            fontFamily: 'monospace',
-                            lineHeight: 1.55,
-                            resize: 'vertical'
-                          }}
-                        />
-                      ) : (
-                        <div
-                          onClick={() => setEditingNotes(true)}
-                          className="nd-break-words"
-                          style={{
-                            backgroundColor: 'var(--bg-surface)',
-                            border: '1px solid var(--border-subtle)',
-                            borderRadius: '8px',
-                            padding: '12px 14px',
-                            fontSize: '12px',
-                            fontFamily: selectedHost.notes ? 'monospace' : 'inherit',
-                            color: selectedHost.notes
-                              ? 'var(--text-primary)'
-                              : 'var(--text-muted)',
-                            whiteSpace: 'pre-wrap',
-                            lineHeight: 1.55,
-                            minHeight: '104px',
-                            cursor: 'text'
-                          }}
-                        >
-                          {selectedHost.notes ||
-                            'No runbook notes recorded. Click Edit to document ports, services, or configuration details.'}
-                        </div>
-                      )}
-                    </div>
-
-                    {/* 5. Available Actions */}
-                    <div
-                      style={{
-                        paddingTop: '14px',
-                        borderTop: '1px solid var(--border-subtle)',
-                        display: 'flex',
-                        flexDirection: 'column',
-                        gap: '8px'
-                      }}
-                    >
-                      <button
-                        type="button"
-                        onClick={() => handleDeleteHost(selectedHost.id)}
-                        className="nd-btn-danger"
-                        style={{ width: '100%' }}
-                      >
-                        <Trash2 size={14} />
-                        <span>Remove Host from Inventory</span>
-                      </button>
-                    </div>
-                  </div>
-                ) : (
-                  <div
-                    style={{
-                      padding: '48px 24px',
-                      textAlign: 'center',
-                      color: 'var(--text-muted)',
-                      fontSize: '12.5px'
-                    }}
-                  >
-                    Select a host or container from the list to inspect its specifications.
-                  </div>
-                )}
+              {/* RIGHT PANEL: Comprehensive Device Details Inspector */}
+              <aside className={`nd-right-inspector ${mobileInspectorOpen ? 'nd-inspector-open' : ''}`}>
+                <DeviceInspector
+                  device={selectedHost}
+                  subnets={subnets}
+                  hosts={hosts}
+                  customDeviceTypes={customDeviceTypes}
+                  onEditDevice={(dev) => {
+                    setEditingDevice(dev);
+                    setShowHostModal(true);
+                  }}
+                  onDeleteDevice={(dev) => {
+                    if (appSettings?.confirm_destructive !== false) {
+                      if (!window.confirm(`Delete device "${dev.name || dev.hostname}" from inventory?`)) {
+                        return;
+                      }
+                    }
+                    handleDeleteHost(dev.id);
+                  }}
+                  onSaveNotes={handleSaveDeviceNotes}
+                  onCloseMobile={() => setMobileInspectorOpen(false)}
+                />
               </aside>
             </>
           )}
@@ -2622,6 +2751,22 @@ export default function App() {
             </div>
           )}
         </main>
+
+        {/* Register / Edit Network Device Modal */}
+        <DeviceModal
+          isOpen={showHostModal}
+          onClose={() => {
+            setShowHostModal(false);
+            setEditingDevice(null);
+          }}
+          initialDevice={editingDevice}
+          subnets={subnets}
+          hosts={hosts}
+          customDeviceTypes={customDeviceTypes}
+          onSaveDevice={handleSaveDeviceModal}
+          onCreateCustomType={handleCreateCustomType}
+          onDeleteCustomType={handleDeleteCustomType}
+        />
       </div>
 
       {/* MODAL: Create Subnet */}
@@ -2822,7 +2967,7 @@ export default function App() {
       )}
 
       {/* MODAL: Add Host */}
-      {showHostModal && (
+      {false && (
         <ModalDialog
           title="Provision New Host"
           subtitle="Register a physical server, appliance, virtual machine, or container."
