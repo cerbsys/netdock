@@ -16,7 +16,7 @@ NetDock is built for homelab enthusiasts, self-hosters, and administrators who w
 - **Device Relationships** – Organize containers and virtual machines under their respective hosts.
 
 ### Documentation
-- **Runbooks – Document** credentials, open ports, procedures, and important device information.
+- **Runbooks** – Document credentials, open ports, procedures, and important device information.
 - **Operational Notes** – Keep useful information associated with individual infrastructure entries.
 - **Backup & Restore** – Export your database to JSON and restore it when needed.
 
@@ -57,15 +57,14 @@ services:
 Run:
 docker compose up -d
 
-
 Access the interface at http://localhost:8085.
 
 **REMEMBER** This tool is intended for personal network use, this should not be externally facing!
 
+If you encounter an issue or have an idea for improving NetDock, please open an issue in the GitHub repository.
 
-
-### Project
-## Developed by Cerbsys
+## Project
+### Developed by Cerbsys
 - Repository: https://github.com/cerbsys/netdock
 - Container Image: ghcr.io/cerbsys/netdock:latest
 
