@@ -20,7 +20,7 @@ services:
     restart: unless-stopped
     ports:
       - "8085:8000"
-    user: "0:983"
+    user: "0:GID" Replace GID with your host GID
     dns:
       - 1.1.1.1
       - 8.8.8.8
