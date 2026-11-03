@@ -46,13 +46,15 @@ services:
     restart: unless-stopped
     ports:
       - "8085:8000"
-    user: "0:GID" Replace GID with your host GID
+    user: "0:GID" #Replace GID with your host GID
+    dns:
+      - 1.1.1.1
+      - 8.8.8.8
     volumes:
       - ./data:/data
       - /var/run/docker.sock:/var/run/docker.sock:ro
     environment:
       - PYTHONUNBUFFERED=1
-
 ```
 Run:
 docker compose up -d
