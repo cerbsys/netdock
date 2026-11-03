@@ -14,6 +14,56 @@ import {
   parseHostSpecs
 } from './deviceCatalog';
 
+async function writeTextToSystemClipboard(rawValue) {
+  const value = (rawValue || '').trim();
+  if (!value || value === '—' || value.toLowerCase() === 'unassigned') {
+    throw new Error('No address value is available to copy.');
+  }
+
+  // 1. Primary path: Modern Async Clipboard API (when available & permitted)
+  if (
+    typeof navigator !== 'undefined' &&
+    navigator.clipboard &&
+    typeof navigator.clipboard.writeText === 'function' &&
+    window.isSecureContext
+  ) {
+    try {
+      await navigator.clipboard.writeText(value);
+      return true;
+    } catch (_) {
+      // Fall through to execCommand fallback if permission was denied
+    }
+  }
+
+  // 2. Fallback path for HTTP LAN origins and restricted contexts
+  if (typeof document !== 'undefined' && typeof document.execCommand === 'function') {
+    const textarea = document.createElement('textarea');
+    textarea.value = value;
+    textarea.setAttribute('readonly', '');
+    textarea.style.position = 'fixed';
+    textarea.style.top = '-9999px';
+    textarea.style.left = '-9999px';
+    textarea.style.opacity = '0';
+    textarea.style.pointerEvents = 'none';
+    document.body.appendChild(textarea);
+
+    try {
+      textarea.focus();
+      textarea.select();
+      textarea.setSelectionRange(0, value.length);
+      const copied = document.execCommand('copy');
+      if (!copied) {
+        throw new Error('Browser blocked clipboard copy operation.');
+      }
+      return true;
+    } finally {
+      document.body.removeChild(textarea);
+    }
+  }
+
+  throw new Error('Clipboard access is not supported in this browser context.');
+}
+
 export default function DeviceInspector({
   device,
   subnets = [],
@@ -22,6 +72,7 @@ export default function DeviceInspector({
   onEditDevice,
   onDeleteDevice,
   onSaveNotes,
+  onNotify,
   onCloseMobile
 }) {
   const [copiedField, setCopiedField] = useState(null);
@@ -30,6 +81,7 @@ export default function DeviceInspector({
 
   useEffect(() => {
     setEditingNotes(false);
+    setCopiedField(null);
     setNotesDraft(device?.notes || '');
   }, [device?.id, device?.notes]);
 
@@ -64,11 +116,25 @@ export default function DeviceInspector({
   const parentDevice = hosts.find((h) => h.id === device.parent_id);
   const downstreamCount = hosts.filter((h) => h.parent_id === device.id).length;
 
-  const copyText = (val, key) => {
-    if (!val) return;
-    navigator.clipboard.writeText(val);
-    setCopiedField(key);
-    setTimeout(() => setCopiedField(null), 1600);
+  const hasValidIp = Boolean(device.ip && device.ip.trim() && device.ip.trim().toLowerCase() !== 'unassigned');
+  const hasValidMac = Boolean(device.mac && device.mac.trim() && device.mac.trim() !== '—');
+
+  const handleCopyValue = async (rawValue, key, label) => {
+    try {
+      await writeTextToSystemClipboard(rawValue);
+      setCopiedField(key);
+      if (onNotify) {
+        onNotify(`Copied ${label} (${rawValue.trim()}) to clipboard.`, 'notice');
+      }
+      setTimeout(() => {
+        setCopiedField((prev) => (prev === key ? null : prev));
+      }, 1800);
+    } catch (err) {
+      setCopiedField(null);
+      if (onNotify) {
+        onNotify(err.message || `Failed to copy ${label} to clipboard.`, 'error');
+      }
+    }
   };
 
   // Build populated device-specific entries
@@ -199,29 +265,35 @@ export default function DeviceInspector({
 
         {/* Supported Quick Actions Bar */}
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
-          {device.ip && (
-            <button
-              type="button"
-              onClick={() => copyText(device.ip, 'ip')}
-              style={actionBtnStyle}
-              title="Copy IPv4 Address"
-            >
-              {copiedField === 'ip' ? <Check size={12} color="#10b981" /> : <Copy size={12} />}
-              <span>{copiedField === 'ip' ? 'Copied IP' : 'Copy IP'}</span>
-            </button>
-          )}
+          <button
+            type="button"
+            disabled={!hasValidIp}
+            onClick={() => handleCopyValue(device.ip, 'ip', 'IP Address')}
+            style={{
+              ...actionBtnStyle,
+              opacity: hasValidIp ? 1 : 0.45,
+              cursor: hasValidIp ? 'pointer' : 'not-allowed'
+            }}
+            title={hasValidIp ? `Copy IP Address (${device.ip})` : 'No IP address assigned'}
+          >
+            {copiedField === 'ip' ? <Check size={12} color="#10b981" /> : <Copy size={12} />}
+            <span>{copiedField === 'ip' ? 'Copied IP' : 'Copy IP'}</span>
+          </button>
 
-          {device.mac && (
-            <button
-              type="button"
-              onClick={() => copyText(device.mac, 'mac')}
-              style={actionBtnStyle}
-              title="Copy MAC Address"
-            >
-              {copiedField === 'mac' ? <Check size={12} color="#10b981" /> : <Copy size={12} />}
-              <span>{copiedField === 'mac' ? 'Copied MAC' : 'Copy MAC'}</span>
-            </button>
-          )}
+          <button
+            type="button"
+            disabled={!hasValidMac}
+            onClick={() => handleCopyValue(device.mac, 'mac', 'MAC Address')}
+            style={{
+              ...actionBtnStyle,
+              opacity: hasValidMac ? 1 : 0.45,
+              cursor: hasValidMac ? 'pointer' : 'not-allowed'
+            }}
+            title={hasValidMac ? `Copy MAC Address (${device.mac})` : 'No MAC address recorded'}
+          >
+            {copiedField === 'mac' ? <Check size={12} color="#10b981" /> : <Copy size={12} />}
+            <span>{copiedField === 'mac' ? 'Copied MAC' : 'Copy MAC'}</span>
+          </button>
 
           <button
             type="button"

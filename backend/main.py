@@ -1,3 +1,22 @@
+import logging
+import sqlite3
+import platform
+from datetime import datetime, timezone
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
+from sqlalchemy import text
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] netdock: %(message)s"
+)
+logger = logging.getLogger("netdock")
+
+APP_VERSION = "1.4.0"
+if "PROCESS_START_TIME" not in globals():
+    import time as _time_mod
+    PROCESS_START_TIME = int(_time_mod.time())
+
 import os
 import json
 import socket
@@ -14,8 +33,8 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 from sqlmodel import Session, select
 
-from database import init_db, get_session, engine
-from models import Host, Subnet, Service, Operator, AppSettings, CustomDeviceType
+from database import engine, init_db, get_session, ACTIVE_DB_PATH
+from models import Subnet, Host, Service, Operator, CustomDeviceType, AppSettings
 
 def hash_secret(secret: str, salt: str) -> str:
     return hashlib.pbkdf2_hmac("sha256", secret.encode(), salt.encode(), 100000).hex()
@@ -764,13 +783,16 @@ def delete_custom_device_type(type_id: str, session: Session = Depends(get_sessi
 
 # --- Docker Raw Socket HTTP Client ---
 class UnixSocketHTTPConnection(http.client.HTTPConnection):
-    def __init__(self, socket_path):
-        super().__init__("localhost")
+    def __init__(self, socket_path: str, timeout: float = 5.0):
+        super().__init__("localhost", timeout=timeout)
         self.socket_path = socket_path
 
     def connect(self):
-        self.sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-        self.sock.connect(self.socket_path)
+        sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        sock.settimeout(self.timeout)
+        sock.connect(self.socket_path)
+        self.sock = sock
+
 
 def query_docker_socket(path="/containers/json?all=1"):
     conn = UnixSocketHTTPConnection("/var/run/docker.sock")
@@ -907,19 +929,292 @@ def import_database(payload: dict, session: Session = Depends(get_session)):
     return {"status": "success", "imported": True}
 
 
-# --- Settings, Account, Docker Preferences & System Management Routes ---
-import platform
+# --- Settings, Account, Backup/Restore & System Diagnostics Routes ---
 from pydantic import BaseModel
-from sqlalchemy import text
 
 ALLOWED_THEMES = {"dark", "light", "system"}
 ALLOWED_ACCENTS = {"indigo", "sky", "emerald", "amber", "rose", "slate"}
 ALLOWED_DENSITIES = {"comfortable", "default", "compact"}
 ALLOWED_LOG_LIMITS = {50, 100, 250, 500, 1000, 2500}
 ALLOWED_LOG_REFRESH = {0, 2, 5, 10, 30}
-ALLOWED_SORT_BY = {"hostname", "ip", "status", "device_type"}
+ALLOWED_SORT_BY = {"hostname", "name", "ip", "status", "device_type"}
 ALLOWED_SORT_ORDER = {"asc", "desc"}
 ALLOWED_REFRESH_INTERVALS = {0, 15, 30, 60, 300}
+
+DEFAULT_SETTINGS_DICT = {
+    "id": "global",
+    "theme": "dark",
+    "accent_color": "indigo",
+    "density": "default",
+    "container_log_limit": 250,
+    "log_refresh_interval": 5,
+    "container_sort_by": "hostname",
+    "container_sort_order": "asc",
+    "auto_refresh_interval": 0,
+    "confirm_destructive": True,
+}
+
+
+@app.exception_handler(HTTPException)
+async def custom_http_exception_handler(request: Request, exc: HTTPException):
+    msg = str(exc.detail) if exc.detail else "Request failed."
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={
+            "success": False,
+            "error": f"HTTP_{exc.status_code}",
+            "message": msg,
+            "detail": msg,
+        },
+    )
+
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    errors = exc.errors()
+    first_msg = "Invalid request parameters."
+    if errors:
+        loc = ".".join(str(x) for x in errors[0].get("loc", []) if x != "body")
+        err_msg = errors[0].get("msg", "invalid value")
+        first_msg = f"Validation error on '{loc}': {err_msg}" if loc else f"Validation error: {err_msg}"
+    logger.warning("Request validation error on %s: %s", request.url.path, first_msg)
+    return JSONResponse(
+        status_code=422,
+        content={
+            "success": False,
+            "error": "VALIDATION_ERROR",
+            "message": first_msg,
+            "detail": first_msg,
+        },
+    )
+
+
+@app.exception_handler(Exception)
+async def global_unhandled_exception_handler(request: Request, exc: Exception):
+    logger.exception("Unhandled backend exception on %s %s", request.method, request.url.path)
+    msg = f"Internal server error: {str(exc)}"
+    return JSONResponse(
+        status_code=500,
+        content={
+            "success": False,
+            "error": "INTERNAL_SERVER_ERROR",
+            "message": msg,
+            "detail": msg,
+        },
+    )
+
+
+def resolve_active_db_path() -> str:
+    try:
+        if ACTIVE_DB_PATH:
+            return str(ACTIVE_DB_PATH)
+    except Exception:
+        pass
+    try:
+        if engine.url.database:
+            return str(engine.url.database)
+    except Exception:
+        pass
+    return "/data/inventory.db"
+
+
+def ensure_all_schemas_and_migrate() -> dict:
+    # Safely inspects and migrates the live SQLite database using a dedicated connection
+    # so it never conflicts with open SQLModel sessions.
+    db_file = resolve_active_db_path()
+    os.makedirs(os.path.dirname(os.path.abspath(db_file)), exist_ok=True)
+    migrations_applied = []
+
+    conn = sqlite3.connect(db_file, timeout=15.0)
+    try:
+        cur = conn.cursor()
+        cur.execute("PRAGMA journal_mode=WAL;")
+        cur.execute("PRAGMA busy_timeout=10000;")
+
+        # 1. Ensure all core tables exist
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS subnet (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                cidr TEXT NOT NULL,
+                gateway TEXT DEFAULT '',
+                vlan_id INTEGER DEFAULT NULL,
+                description TEXT DEFAULT ''
+            )
+        """)
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS host (
+                id TEXT PRIMARY KEY,
+                name TEXT DEFAULT '',
+                hostname TEXT NOT NULL,
+                device_category TEXT DEFAULT 'Servers and Computing',
+                device_type TEXT DEFAULT 'Physical Server',
+                manufacturer TEXT DEFAULT '',
+                model TEXT DEFAULT '',
+                ip TEXT NOT NULL,
+                ipv6 TEXT DEFAULT '',
+                mac TEXT DEFAULT '',
+                location TEXT DEFAULT '',
+                serial_number TEXT DEFAULT '',
+                firmware_version TEXT DEFAULT '',
+                os TEXT DEFAULT '',
+                status TEXT DEFAULT 'online',
+                subnet_id TEXT DEFAULT '',
+                parent_id TEXT DEFAULT NULL,
+                notes TEXT DEFAULT '',
+                specs_json TEXT DEFAULT '{}',
+                updated_at INTEGER DEFAULT 0
+            )
+        """)
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS service (
+                id TEXT PRIMARY KEY,
+                host_id TEXT NOT NULL,
+                name TEXT NOT NULL,
+                port INTEGER NOT NULL,
+                protocol TEXT DEFAULT 'TCP',
+                status TEXT DEFAULT 'running'
+            )
+        """)
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS operator (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                username TEXT NOT NULL UNIQUE,
+                password_hash TEXT NOT NULL,
+                salt TEXT NOT NULL,
+                created_at INTEGER DEFAULT 0
+            )
+        """)
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS customdevicetype (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL UNIQUE,
+                category TEXT DEFAULT 'Other',
+                icon_name TEXT DEFAULT 'Box',
+                fields_json TEXT DEFAULT '[]',
+                created_at INTEGER DEFAULT 0
+            )
+        """)
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS appsettings (
+                id TEXT PRIMARY KEY,
+                theme TEXT DEFAULT 'dark',
+                accent_color TEXT DEFAULT 'indigo',
+                density TEXT DEFAULT 'default',
+                container_log_limit INTEGER DEFAULT 250,
+                log_refresh_interval INTEGER DEFAULT 5,
+                container_sort_by TEXT DEFAULT 'hostname',
+                container_sort_order TEXT DEFAULT 'asc',
+                auto_refresh_interval INTEGER DEFAULT 0,
+                confirm_destructive INTEGER DEFAULT 1,
+                updated_at INTEGER DEFAULT 0
+            )
+        """)
+
+        # 2. Safely add any missing columns to existing tables without dropping data
+        table_migrations = {
+            "subnet": [
+                ("gateway", "TEXT DEFAULT ''"),
+                ("vlan_id", "INTEGER DEFAULT NULL"),
+                ("description", "TEXT DEFAULT ''"),
+            ],
+            "service": [
+                ("protocol", "TEXT DEFAULT 'TCP'"),
+                ("status", "TEXT DEFAULT 'running'"),
+            ],
+            "host": [
+                ("name", "TEXT DEFAULT ''"),
+                ("device_category", "TEXT DEFAULT 'Servers and Computing'"),
+                ("device_type", "TEXT DEFAULT 'Physical Server'"),
+                ("manufacturer", "TEXT DEFAULT ''"),
+                ("model", "TEXT DEFAULT ''"),
+                ("ipv6", "TEXT DEFAULT ''"),
+                ("mac", "TEXT DEFAULT ''"),
+                ("location", "TEXT DEFAULT ''"),
+                ("serial_number", "TEXT DEFAULT ''"),
+                ("firmware_version", "TEXT DEFAULT ''"),
+                ("os", "TEXT DEFAULT ''"),
+                ("status", "TEXT DEFAULT 'online'"),
+                ("subnet_id", "TEXT DEFAULT ''"),
+                ("parent_id", "TEXT DEFAULT NULL"),
+                ("notes", "TEXT DEFAULT ''"),
+                ("specs_json", "TEXT DEFAULT '{}'"),
+                ("updated_at", "INTEGER DEFAULT 0"),
+            ],
+            "customdevicetype": [
+                ("category", "TEXT DEFAULT 'Other'"),
+                ("icon_name", "TEXT DEFAULT 'Box'"),
+                ("fields_json", "TEXT DEFAULT '[]'"),
+                ("created_at", "INTEGER DEFAULT 0"),
+            ],
+            "appsettings": [
+                ("theme", "TEXT DEFAULT 'dark'"),
+                ("accent_color", "TEXT DEFAULT 'indigo'"),
+                ("density", "TEXT DEFAULT 'default'"),
+                ("container_log_limit", "INTEGER DEFAULT 250"),
+                ("log_refresh_interval", "INTEGER DEFAULT 5"),
+                ("container_sort_by", "TEXT DEFAULT 'hostname'"),
+                ("container_sort_order", "TEXT DEFAULT 'asc'"),
+                ("auto_refresh_interval", "INTEGER DEFAULT 0"),
+                ("confirm_destructive", "INTEGER DEFAULT 1"),
+                ("updated_at", "INTEGER DEFAULT 0"),
+            ],
+        }
+
+        for tbl, col_defs in table_migrations.items():
+            cur.execute(f"PRAGMA table_info({tbl})")
+            existing_cols = {row[1] for row in cur.fetchall()}
+            for col_name, col_spec in col_defs:
+                if col_name not in existing_cols:
+                    cur.execute(f"ALTER TABLE {tbl} ADD COLUMN {col_name} {col_spec}")
+                    migrations_applied.append(f"{tbl}.{col_name}")
+                    logger.info("Applied schema migration: added column %s.%s", tbl, col_name)
+
+        # Backfill empty host.name from hostname
+        try:
+            cur.execute("UPDATE host SET name = hostname WHERE name IS NULL OR name = ''")
+        except Exception:
+            pass
+        try:
+            cur.execute("UPDATE host SET specs_json = '{}' WHERE specs_json IS NULL OR specs_json = ''")
+            conn.commit()
+        except Exception:
+            pass
+
+        # 3. Ensure default 'global' row exists in appsettings without overwriting existing settings
+        # Safely drop legacy NOT NULL columns from older appsettings schemas
+        for legacy_col in ("app_name", "environment_label", "app_title", "default_tab", "docker_socket_path", "app_version"):
+            try:
+                cur.execute(f"ALTER TABLE appsettings DROP COLUMN {legacy_col}")
+            except Exception:
+                pass
+
+        cur.execute("SELECT id FROM appsettings WHERE id = 'global'")
+        if not cur.fetchone():
+            now_ts = int(time.time())
+            try:
+                cur.execute(
+                    "INSERT INTO appsettings (id, theme, accent_color, density, container_log_limit, log_refresh_interval, container_sort_by, container_sort_order, auto_refresh_interval, confirm_destructive, updated_at) VALUES ('global', 'dark', 'indigo', 'default', 250, 5, 'hostname', 'asc', 0, 1, ?)",
+                    (now_ts,),
+                )
+            except Exception:
+                cur.execute("INSERT OR REPLACE INTO appsettings (id) VALUES ('global')")
+            migrations_applied.append("appsettings.init_global_row")
+            logger.info("Initialized default 'global' row in appsettings table.")
+
+        conn.commit()
+    finally:
+        conn.close()
+
+    return {"db_path": db_file, "migrations_applied": migrations_applied}
+
+
+# Run schema verification immediately when module loads
+try:
+    ensure_all_schemas_and_migrate()
+except Exception as _boot_exc:
+    logger.error("Startup schema verification warning: %s", _boot_exc)
+
 
 class SettingsUpdatePayload(BaseModel):
     theme: Optional[str] = None
@@ -932,6 +1227,7 @@ class SettingsUpdatePayload(BaseModel):
     auto_refresh_interval: Optional[int] = None
     confirm_destructive: Optional[bool] = None
 
+
 class CredentialsUpdatePayload(BaseModel):
     current_password: str
     new_username: Optional[str] = None
@@ -939,159 +1235,775 @@ class CredentialsUpdatePayload(BaseModel):
     confirm_password: Optional[str] = None
     revoke_other_sessions: bool = True
 
-def ensure_appsettings_schema(session: Session):
-    required_columns = {
-        "theme": ("TEXT", "'dark'"),
-        "accent_color": ("TEXT", "'indigo'"),
-        "density": ("TEXT", "'default'"),
-        "container_log_limit": ("INTEGER", "250"),
-        "log_refresh_interval": ("INTEGER", "5"),
-        "container_sort_by": ("TEXT", "'hostname'"),
-        "container_sort_order": ("TEXT", "'asc'"),
-        "auto_refresh_interval": ("INTEGER", "0"),
-        "confirm_destructive": ("INTEGER", "1"),
-        "updated_at": ("INTEGER", "0"),
+
+def normalize_settings_dict(raw: dict) -> dict:
+    theme = str(raw.get("theme") or "dark").strip().lower()
+    if theme not in ALLOWED_THEMES:
+        theme = "dark"
+
+    accent = str(raw.get("accent_color") or "indigo").strip().lower()
+    if accent not in ALLOWED_ACCENTS:
+        accent = "indigo"
+
+    density = str(raw.get("density") or "default").strip().lower()
+    if density not in ALLOWED_DENSITIES:
+        density = "default"
+
+    try:
+        log_limit = int(raw.get("container_log_limit", 250))
+    except Exception:
+        log_limit = 250
+    if log_limit not in ALLOWED_LOG_LIMITS:
+        log_limit = 250
+
+    try:
+        log_refresh = int(raw.get("log_refresh_interval", 5))
+    except Exception:
+        log_refresh = 5
+    if log_refresh not in ALLOWED_LOG_REFRESH:
+        log_refresh = 5
+
+    sort_by = str(raw.get("container_sort_by") or "hostname").strip()
+    if sort_by not in ALLOWED_SORT_BY:
+        sort_by = "hostname"
+
+    sort_order = str(raw.get("container_sort_order") or "asc").strip().lower()
+    if sort_order not in ALLOWED_SORT_ORDER:
+        sort_order = "asc"
+
+    try:
+        auto_refresh = int(raw.get("auto_refresh_interval", 0))
+    except Exception:
+        auto_refresh = 0
+    if auto_refresh not in ALLOWED_REFRESH_INTERVALS:
+        auto_refresh = 0
+
+    confirm_val = raw.get("confirm_destructive")
+    if confirm_val is None:
+        confirm_bool = True
+    elif isinstance(confirm_val, bool):
+        confirm_bool = confirm_val
+    elif isinstance(confirm_val, (int, float)):
+        confirm_bool = bool(confirm_val)
+    else:
+        confirm_bool = str(confirm_val).strip().lower() not in {"0", "false", "no"}
+
+    try:
+        updated_at = int(raw.get("updated_at") or int(time.time()))
+    except Exception:
+        updated_at = int(time.time())
+
+    return {
+        "id": "global",
+        "theme": theme,
+        "accent_color": accent,
+        "density": density,
+        "container_log_limit": log_limit,
+        "log_refresh_interval": log_refresh,
+        "container_sort_by": sort_by,
+        "container_sort_order": sort_order,
+        "auto_refresh_interval": auto_refresh,
+        "confirm_destructive": confirm_bool,
+        "updated_at": updated_at,
     }
+
+
+def read_settings_from_sqlite() -> dict:
+    ensure_all_schemas_and_migrate()
+    db_file = resolve_active_db_path()
+    conn = sqlite3.connect(db_file, timeout=15.0)
+    conn.row_factory = sqlite3.Row
     try:
-        rows = session.exec(text("PRAGMA table_info(appsettings)")).all()
-        existing_cols = {r[1] for r in rows}
-        if not existing_cols:
-            SQLModel.metadata.create_all(engine)
-            return
-        for col_name, (col_type, default_val) in required_columns.items():
-            if col_name not in existing_cols:
-                session.exec(
-                    text(f"ALTER TABLE appsettings ADD COLUMN {col_name} {col_type} DEFAULT {default_val}")
-                )
-        session.commit()
-    except Exception:
-        session.rollback()
+        cur = conn.cursor()
+        cur.execute("SELECT * FROM appsettings WHERE id = 'global'")
+        row = cur.fetchone()
+        if not row:
+            cur.execute("SELECT * FROM appsettings LIMIT 1")
+            row = cur.fetchone()
+        if not row:
+            return normalize_settings_dict(DEFAULT_SETTINGS_DICT)
+        return normalize_settings_dict(dict(row))
+    except Exception as exc:
+        logger.exception("SQLite settings read error on %s: %s", db_file, exc)
+        raise HTTPException(status_code=500, detail=f"Unable to read application settings from database ({type(exc).__name__}).")
+    finally:
+        conn.close()
 
-def get_or_create_settings(session: Session) -> AppSettings:
-    ensure_appsettings_schema(session)
+
+def write_settings_to_sqlite(updated: dict) -> dict:
+    ensure_all_schemas_and_migrate()
+    clean = normalize_settings_dict(updated)
+    clean["updated_at"] = int(time.time())
+    db_file = resolve_active_db_path()
+    conn = sqlite3.connect(db_file, timeout=15.0)
     try:
-        settings_row = session.get(AppSettings, "global")
-        if not settings_row:
-            settings_row = AppSettings(id="global", updated_at=int(time.time()))
-            session.add(settings_row)
-            session.commit()
-            session.refresh(settings_row)
+        cur = conn.cursor()
+        cur.execute(
+            """
+            INSERT INTO appsettings (
+                id, theme, accent_color, density,
+                container_log_limit, log_refresh_interval,
+                container_sort_by, container_sort_order,
+                auto_refresh_interval, confirm_destructive, updated_at
+            ) VALUES (
+                'global', :theme, :accent_color, :density,
+                :container_log_limit, :log_refresh_interval,
+                :container_sort_by, :container_sort_order,
+                :auto_refresh_interval, :confirm_destructive, :updated_at
+            )
+            ON CONFLICT(id) DO UPDATE SET
+                theme = excluded.theme,
+                accent_color = excluded.accent_color,
+                density = excluded.density,
+                container_log_limit = excluded.container_log_limit,
+                log_refresh_interval = excluded.log_refresh_interval,
+                container_sort_by = excluded.container_sort_by,
+                container_sort_order = excluded.container_sort_order,
+                auto_refresh_interval = excluded.auto_refresh_interval,
+                confirm_destructive = excluded.confirm_destructive,
+                updated_at = excluded.updated_at
+            """,
+            {
+                "theme": clean["theme"],
+                "accent_color": clean["accent_color"],
+                "density": clean["density"],
+                "container_log_limit": clean["container_log_limit"],
+                "log_refresh_interval": clean["log_refresh_interval"],
+                "container_sort_by": clean["container_sort_by"],
+                "container_sort_order": clean["container_sort_order"],
+                "auto_refresh_interval": clean["auto_refresh_interval"],
+                "confirm_destructive": 1 if clean["confirm_destructive"] else 0,
+                "updated_at": clean["updated_at"],
+            },
+        )
+        conn.commit()
+        # Run passive checkpoint so settings are immediately flushed to the main DB file as well as WAL
+        cur.execute("PRAGMA wal_checkpoint(PASSIVE);")
+        logger.info(
+            "Saved settings to %s: theme=%s accent=%s density=%s",
+            db_file,
+            clean["theme"],
+            clean["accent_color"],
+            clean["density"],
+        )
+        return clean
+    except Exception as exc:
+        conn.rollback()
+        logger.exception("SQLite settings write error on %s: %s", db_file, exc)
+        raise HTTPException(status_code=500, detail=f"Failed to save application settings ({type(exc).__name__}).")
+    finally:
+        conn.close()
 
-        dirty = False
-        if settings_row.theme not in ALLOWED_THEMES:
-            settings_row.theme = "dark"
-            dirty = True
-        if settings_row.accent_color not in ALLOWED_ACCENTS:
-            settings_row.accent_color = "indigo"
-            dirty = True
-        if settings_row.density not in ALLOWED_DENSITIES:
-            settings_row.density = "default"
-            dirty = True
-        if settings_row.container_log_limit not in ALLOWED_LOG_LIMITS:
-            settings_row.container_log_limit = 250
-            dirty = True
-        if settings_row.log_refresh_interval not in ALLOWED_LOG_REFRESH:
-            settings_row.log_refresh_interval = 5
-            dirty = True
-        if settings_row.container_sort_by not in ALLOWED_SORT_BY:
-            settings_row.container_sort_by = "hostname"
-            dirty = True
-        if settings_row.container_sort_order not in ALLOWED_SORT_ORDER:
-            settings_row.container_sort_order = "asc"
-            dirty = True
-        if settings_row.auto_refresh_interval not in ALLOWED_REFRESH_INTERVALS:
-            settings_row.auto_refresh_interval = 0
-            dirty = True
-        if dirty:
-            session.add(settings_row)
-            session.commit()
-            session.refresh(settings_row)
-        return settings_row
-    except Exception:
-        session.rollback()
-        return AppSettings(id="global", updated_at=int(time.time()))
 
-@app.get("/api/v1/settings", response_model=AppSettings)
-def read_app_settings(session: Session = Depends(get_session)):
-    return get_or_create_settings(session)
+@app.get("/api/v1/settings")
+def read_app_settings():
+    return read_settings_from_sqlite()
 
-@app.put("/api/v1/settings", response_model=AppSettings)
-def update_app_settings(payload: SettingsUpdatePayload, session: Session = Depends(get_session)):
-    settings_row = get_or_create_settings(session)
+
+@app.put("/api/v1/settings")
+def update_app_settings(payload: SettingsUpdatePayload):
+    current = read_settings_from_sqlite()
 
     if payload.theme is not None:
-        if payload.theme not in ALLOWED_THEMES:
+        clean_theme = payload.theme.strip().lower()
+        if clean_theme not in ALLOWED_THEMES:
             raise HTTPException(status_code=400, detail="Theme must be 'dark', 'light', or 'system'.")
-        settings_row.theme = payload.theme
+        current["theme"] = clean_theme
 
     if payload.accent_color is not None:
-        if payload.accent_color not in ALLOWED_ACCENTS:
+        clean_accent = payload.accent_color.strip().lower()
+        if clean_accent not in ALLOWED_ACCENTS:
             raise HTTPException(status_code=400, detail="Unsupported accent color.")
-        settings_row.accent_color = payload.accent_color
+        current["accent_color"] = clean_accent
 
     if payload.density is not None:
-        if payload.density not in ALLOWED_DENSITIES:
+        clean_density = payload.density.strip().lower()
+        if clean_density not in ALLOWED_DENSITIES:
             raise HTTPException(status_code=400, detail="Density must be 'comfortable', 'default', or 'compact'.")
-        settings_row.density = payload.density
+        current["density"] = clean_density
 
     if payload.container_log_limit is not None:
         if payload.container_log_limit not in ALLOWED_LOG_LIMITS:
             raise HTTPException(status_code=400, detail="Log limit must be 50, 100, 250, 500, 1000, or 2500 lines.")
-        settings_row.container_log_limit = payload.container_log_limit
+        current["container_log_limit"] = int(payload.container_log_limit)
 
     if payload.log_refresh_interval is not None:
         if payload.log_refresh_interval not in ALLOWED_LOG_REFRESH:
             raise HTTPException(status_code=400, detail="Log refresh interval must be 0, 2, 5, 10, or 30 seconds.")
-        settings_row.log_refresh_interval = payload.log_refresh_interval
+        current["log_refresh_interval"] = int(payload.log_refresh_interval)
 
     if payload.container_sort_by is not None:
         if payload.container_sort_by not in ALLOWED_SORT_BY:
             raise HTTPException(status_code=400, detail="Invalid container sort field.")
-        settings_row.container_sort_by = payload.container_sort_by
+        current["container_sort_by"] = payload.container_sort_by
 
     if payload.container_sort_order is not None:
         if payload.container_sort_order not in ALLOWED_SORT_ORDER:
             raise HTTPException(status_code=400, detail="Sort order must be 'asc' or 'desc'.")
-        settings_row.container_sort_order = payload.container_sort_order
+        current["container_sort_order"] = payload.container_sort_order
 
     if payload.auto_refresh_interval is not None:
         if payload.auto_refresh_interval not in ALLOWED_REFRESH_INTERVALS:
             raise HTTPException(status_code=400, detail="Refresh interval must be 0, 15, 30, 60, or 300 seconds.")
-        settings_row.auto_refresh_interval = payload.auto_refresh_interval
+        current["auto_refresh_interval"] = int(payload.auto_refresh_interval)
 
     if payload.confirm_destructive is not None:
-        settings_row.confirm_destructive = bool(payload.confirm_destructive)
+        current["confirm_destructive"] = bool(payload.confirm_destructive)
 
-    settings_row.updated_at = int(time.time())
-    session.add(settings_row)
-    session.commit()
-    session.refresh(settings_row)
-    return settings_row
+    return write_settings_to_sqlite(current)
 
-@app.post("/api/v1/settings/reset", response_model=AppSettings)
-def reset_app_settings(session: Session = Depends(get_session)):
-    ensure_appsettings_schema(session)
-    existing = session.get(AppSettings, "global")
-    if existing:
-        session.delete(existing)
+
+@app.post("/api/v1/settings/reset")
+def reset_app_settings():
+    ensure_all_schemas_and_migrate()
+    db_file = resolve_active_db_path()
+    conn = sqlite3.connect(db_file, timeout=10.0)
+    try:
+        cur = conn.cursor()
+        cur.execute("DELETE FROM appsettings")
+        now_ts = int(time.time())
+        cur.execute(
+            "INSERT INTO appsettings (id, theme, accent_color, density, container_log_limit, log_refresh_interval, container_sort_by, container_sort_order, auto_refresh_interval, confirm_destructive, updated_at) VALUES ('global', 'dark', 'indigo', 'default', 250, 5, 'hostname', 'asc', 0, 1, ?)",
+            (now_ts,)
+        )
+        conn.commit()
+        logger.info("Reset application settings to factory defaults successfully.")
+    except Exception as exc:
+        conn.rollback()
+        logger.exception("Failed resetting application settings: %s", exc)
+        raise HTTPException(status_code=500, detail="Failed to reset application settings.")
+    finally:
+        conn.close()
+    return read_settings_from_sqlite()
+
+
+def reset_app_settings():
+    db_file = resolve_active_db_path()
+    conn = sqlite3.connect(db_file, timeout=15.0)
+    try:
+        cur = conn.cursor()
+        cur.execute("DELETE FROM appsettings")
+        conn.commit()
+    except Exception:
+        pass
+    finally:
+        conn.close()
+    return write_settings_to_sqlite(dict(DEFAULT_SETTINGS_DICT))
+
+
+# --- Safe Value Serializer & Consistent SQLite Snapshot Backup/Restore ---
+def sanitize_sqlite_value(val, table_name: str = "", col_name: str = ""):
+    if val is None or isinstance(val, (str, int, float, bool)):
+        return val
+    if isinstance(val, (bytes, bytearray, memoryview)):
+        raw_bytes = bytes(val)
+        try:
+            return raw_bytes.decode("utf-8")
+        except UnicodeDecodeError:
+            import base64
+            return {"__encoding__": "base64", "data": base64.b64encode(raw_bytes).decode("ascii")}
+    if isinstance(val, (datetime,)):
+        return val.isoformat()
+    return str(val)
+
+
+@app.get("/api/v1/backup/export")
+@app.get("/api/v1/export")
+def export_json_backup(session: Session = Depends(get_session)):
+    db_file = resolve_active_db_path()
+
+    try:
+        hosts_list = session.exec(select(Host)).all()
+        subnets_list = session.exec(select(Subnet)).all()
+        services_list = session.exec(select(Service)).all()
+        custom_types_list = session.exec(select(CustomDeviceType)).all()
+        
+        settings_row = session.get(AppSettings, "global")
+        settings_dict = serialize_appsettings(settings_row) if settings_row else DEFAULT_SETTINGS_DICT
+    except Exception as exc:
+        logger.exception("Failed querying database via session for backup: %s", exc)
+        raise HTTPException(status_code=500, detail=f"Could not read database for backup: {str(exc)}")
+
+    hosts_data = []
+    for h in hosts_list:
+        h_dict = h.model_dump()
+        specs_raw = h_dict.get("specs_json") or "{}"
+        try:
+            parsed = json.loads(specs_raw) if isinstance(specs_raw, str) else specs_raw
+            if not isinstance(parsed, dict):
+                parsed = {}
+        except Exception:
+            parsed = {}
+        h_dict["specs_json"] = json.dumps(parsed, ensure_ascii=False)
+        h_dict["specs"] = parsed
+        hosts_data.append(h_dict)
+
+    subnets_data = [s.model_dump() for s in subnets_list]
+    services_data = [srv.model_dump() for srv in services_list]
+
+    custom_types_data = []
+    for ct in custom_types_list:
+        ct_dict = ct.model_dump()
+        f_raw = ct_dict.get("fields_json") or "[]"
+        try:
+            parsed = json.loads(f_raw) if isinstance(f_raw, str) else f_raw
+            if not isinstance(parsed, list):
+                parsed = []
+        except Exception:
+            parsed = []
+        ct_dict["fields_json"] = json.dumps(parsed, ensure_ascii=False)
+        ct_dict["fields"] = parsed
+        custom_types_data.append(ct_dict)
+
+    now_utc = datetime.now(timezone.utc)
+    docker_hosts = [
+        h for h in hosts_data
+        if (h.get("device_type") or "").lower() in {"docker host", "container"}
+        or "docker" in (h.get("os") or "").lower()
+    ]
+
+    payload = {
+        "backup_format": "netdock-backup",
+        "version": "2.0",
+        "app_version": APP_VERSION,
+        "generated_at": now_utc.isoformat(),
+        "timestamp": int(now_utc.timestamp()),
+        "counts": {
+            "hosts": len(hosts_data),
+            "docker_entities": len(docker_hosts),
+            "subnets": len(subnets_data),
+            "services": len(services_data),
+            "custom_device_types": len(custom_types_data),
+        },
+        "settings": settings_dict,
+        "appearance": {
+            "theme": settings_dict.get("theme", "dark"),
+            "accent_color": settings_dict.get("accent_color", "indigo"),
+            "density": settings_dict.get("density", "default"),
+        },
+        "subnets": subnets_data,
+        "custom_device_types": custom_types_data,
+        "hosts": hosts_data,
+        "services": services_data,
+    }
+
+    try:
+        date_str = now_utc.strftime("%Y-%m-%d")
+        filename = f"netdock-backup-{date_str}.json"
+        json_bytes = json.dumps(payload, ensure_ascii=False, indent=2).encode("utf-8")
+        logger.info("Successfully generated session-based backup export (%d bytes).", len(json_bytes))
+        return Response(
+            content=json_bytes,
+            media_type="application/json; charset=utf-8",
+            headers={
+                "Content-Disposition": f'attachment; filename="{filename}"',
+                "Cache-Control": "no-store",
+            },
+        )
+    except Exception as exc:
+        logger.exception("JSON serialization error during export: %s", exc)
+        raise HTTPException(status_code=500, detail="Could not serialize backup payload to JSON.")
+
+
+@app.post("/api/v1/backup/import")
+@app.post("/api/v1/import")
+async def import_json_backup(request: Request, session: Session = Depends(get_session)):
+    ensure_all_schemas_and_migrate()
+
+    try:
+        raw_body = await request.body()
+        if not raw_body:
+            raise HTTPException(status_code=400, detail="Backup file is empty.")
+        payload = json.loads(raw_body.decode("utf-8"))
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.warning("Rejected malformed JSON backup import: %s", exc)
+        raise HTTPException(status_code=400, detail="Invalid JSON file. Could not parse backup contents.")
+
+    if not isinstance(payload, dict):
+        raise HTTPException(status_code=400, detail="Invalid backup structure: root element must be a JSON object.")
+
+    data_root = payload.get("data") if isinstance(payload.get("data"), dict) else payload
+    version = str(payload.get("version", "1.0"))
+    if not version.startswith(("1.", "2.")):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unsupported backup format version '{version}'. Expected version 1.x or 2.x.",
+        )
+
+    hosts_in = data_root.get("hosts")
+    subnets_in = data_root.get("subnets")
+    custom_types_in = data_root.get("custom_device_types", [])
+    services_in = data_root.get("services", [])
+    settings_in = data_root.get("settings")
+
+    if hosts_in is None and subnets_in is None and settings_in is None and not custom_types_in:
+        raise HTTPException(
+            status_code=400,
+            detail="Backup file does not contain recognizable NetDock records ('hosts', 'subnets', or 'settings').",
+        )
+
+    if hosts_in is not None and not isinstance(hosts_in, list):
+        raise HTTPException(status_code=400, detail="Invalid backup format: 'hosts' must be a list.")
+    if subnets_in is not None and not isinstance(subnets_in, list):
+        raise HTTPException(status_code=400, detail="Invalid backup format: 'subnets' must be a list.")
+
+    imported_counts = {"subnets": 0, "custom_device_types": 0, "hosts": 0, "services": 0, "settings_updated": False}
+
+    try:
+        for s_item in (subnets_in or []):
+            if not isinstance(s_item, dict):
+                continue
+            s_id = str(s_item.get("id") or "").strip() or f"sub-{secrets.token_hex(4)}"
+            cidr_val = str(s_item.get("cidr") or "").strip()
+            name_val = str(s_item.get("name") or cidr_val or s_id).strip()
+            if not cidr_val:
+                continue
+            existing_sub = session.get(Subnet, s_id)
+            if existing_sub:
+                existing_sub.name = name_val
+                existing_sub.cidr = cidr_val
+                existing_sub.gateway = str(s_item.get("gateway") or "")
+                existing_sub.vlan_id = s_item.get("vlan_id")
+                existing_sub.description = str(s_item.get("description") or "")
+                session.add(existing_sub)
+            else:
+                session.add(
+                    Subnet(
+                        id=s_id,
+                        name=name_val,
+                        cidr=cidr_val,
+                        gateway=str(s_item.get("gateway") or ""),
+                        vlan_id=s_item.get("vlan_id"),
+                        description=str(s_item.get("description") or ""),
+                    )
+                )
+            imported_counts["subnets"] += 1
+
+        for ct_item in (custom_types_in or []):
+            if not isinstance(ct_item, dict):
+                continue
+            ct_name = str(ct_item.get("name") or "").strip()
+            if not ct_name:
+                continue
+            ct_id = str(ct_item.get("id") or "").strip() or f"cdt-{secrets.token_hex(4)}"
+            fields_val = ct_item.get("fields_json")
+            if isinstance(ct_item.get("fields"), list) and not fields_val:
+                fields_val = json.dumps(ct_item["fields"], ensure_ascii=False)
+            elif not isinstance(fields_val, str):
+                fields_val = "[]"
+
+            existing_ct = session.get(CustomDeviceType, ct_id)
+            if not existing_ct:
+                existing_ct = session.exec(select(CustomDeviceType).where(CustomDeviceType.name == ct_name)).first()
+
+            if existing_ct:
+                existing_ct.name = ct_name
+                existing_ct.category = str(ct_item.get("category") or "Other")
+                existing_ct.icon_name = str(ct_item.get("icon_name") or "Box")
+                existing_ct.fields_json = fields_val
+                session.add(existing_ct)
+            else:
+                session.add(
+                    CustomDeviceType(
+                        id=ct_id,
+                        name=ct_name,
+                        category=str(ct_item.get("category") or "Other"),
+                        icon_name=str(ct_item.get("icon_name") or "Box"),
+                        fields_json=fields_val,
+                        created_at=int(ct_item.get("created_at") or int(time.time())),
+                    )
+                )
+            imported_counts["custom_device_types"] += 1
+
+        for h_item in (hosts_in or []):
+            if not isinstance(h_item, dict):
+                continue
+            h_id = str(h_item.get("id") or "").strip() or f"dev-{secrets.token_hex(4)}"
+            h_hostname = str(h_item.get("hostname") or h_item.get("name") or "").strip()
+            h_name = str(h_item.get("name") or h_hostname).strip()
+            if not h_name:
+                continue
+
+            specs_val = h_item.get("specs_json")
+            if isinstance(h_item.get("specs"), dict) and not specs_val:
+                specs_val = json.dumps(h_item["specs"], ensure_ascii=False)
+            elif isinstance(specs_val, dict):
+                specs_val = json.dumps(specs_val, ensure_ascii=False)
+            elif not isinstance(specs_val, str) or not specs_val.strip():
+                specs_val = "{}"
+
+            dev_type = str(h_item.get("device_type") or "Physical Server").strip()
+            dev_cat = str(h_item.get("device_category") or "").strip() or infer_category_from_type(dev_type)
+
+            existing_host = session.get(Host, h_id)
+            if existing_host:
+                existing_host.name = h_name
+                existing_host.hostname = h_hostname
+                existing_host.device_category = dev_cat
+                existing_host.device_type = dev_type
+                existing_host.manufacturer = str(h_item.get("manufacturer") or "")
+                existing_host.model = str(h_item.get("model") or "")
+                existing_host.ip = str(h_item.get("ip") or "")
+                existing_host.ipv6 = str(h_item.get("ipv6") or "")
+                existing_host.mac = str(h_item.get("mac") or "")
+                existing_host.location = str(h_item.get("location") or "")
+                existing_host.serial_number = str(h_item.get("serial_number") or "")
+                existing_host.firmware_version = str(h_item.get("firmware_version") or "")
+                existing_host.os = str(h_item.get("os") or "")
+                existing_host.status = str(h_item.get("status") or "online")
+                existing_host.subnet_id = str(h_item.get("subnet_id") or "")
+                existing_host.parent_id = h_item.get("parent_id") or None
+                existing_host.notes = str(h_item.get("notes") or "")
+                existing_host.specs_json = specs_val
+                existing_host.updated_at = int(time.time())
+                session.add(existing_host)
+            else:
+                session.add(
+                    Host(
+                        id=h_id,
+                        name=h_name,
+                        hostname=h_hostname,
+                        device_category=dev_cat,
+                        device_type=dev_type,
+                        manufacturer=str(h_item.get("manufacturer") or ""),
+                        model=str(h_item.get("model") or ""),
+                        ip=str(h_item.get("ip") or ""),
+                        ipv6=str(h_item.get("ipv6") or ""),
+                        mac=str(h_item.get("mac") or ""),
+                        location=str(h_item.get("location") or ""),
+                        serial_number=str(h_item.get("serial_number") or ""),
+                        firmware_version=str(h_item.get("firmware_version") or ""),
+                        os=str(h_item.get("os") or ""),
+                        status=str(h_item.get("status") or "online"),
+                        subnet_id=str(h_item.get("subnet_id") or ""),
+                        parent_id=h_item.get("parent_id") or None,
+                        notes=str(h_item.get("notes") or ""),
+                        specs_json=specs_val,
+                        updated_at=int(time.time()),
+                    )
+                )
+            imported_counts["hosts"] += 1
+
+        for srv_item in (services_in or []):
+            if not isinstance(srv_item, dict):
+                continue
+            srv_id = str(srv_item.get("id") or "").strip() or f"srv-{secrets.token_hex(4)}"
+            host_id = str(srv_item.get("host_id") or "").strip()
+            srv_name = str(srv_item.get("name") or "").strip()
+            if not host_id or not srv_name:
+                continue
+            existing_srv = session.get(Service, srv_id)
+            if existing_srv:
+                existing_srv.host_id = host_id
+                existing_srv.name = srv_name
+                existing_srv.port = int(srv_item.get("port") or 80)
+                existing_srv.protocol = str(srv_item.get("protocol") or "TCP")
+                existing_srv.status = str(srv_item.get("status") or "running")
+                session.add(existing_srv)
+            else:
+                session.add(
+                    Service(
+                        id=srv_id,
+                        host_id=host_id,
+                        name=srv_name,
+                        port=int(srv_item.get("port") or 80),
+                        protocol=str(srv_item.get("protocol") or "TCP"),
+                        status=str(srv_item.get("status") or "running"),
+                    )
+                )
+            imported_counts["services"] += 1
+
         session.commit()
-    fresh = AppSettings(id="global", updated_at=int(time.time()))
-    session.add(fresh)
-    session.commit()
-    session.refresh(fresh)
-    return fresh
+
+        if isinstance(settings_in, dict):
+            current_s = read_settings_from_sqlite()
+            current_s.update({k: v for k, v in settings_in.items() if k in DEFAULT_SETTINGS_DICT})
+            write_settings_to_sqlite(current_s)
+            imported_counts["settings_updated"] = True
+
+        logger.info("Backup import completed successfully: %s", imported_counts)
+        return {
+            "success": True,
+            "status": "imported",
+            "version": version,
+            "imported": imported_counts,
+            "message": (
+                f"Restored {imported_counts['hosts']} devices, "
+                f"{imported_counts['subnets']} subnets, and "
+                f"{imported_counts['custom_device_types']} custom types."
+            ),
+        }
+    except Exception as exc:
+        session.rollback()
+        logger.exception("Backup import failed during transaction: %s", exc)
+        raise HTTPException(status_code=500, detail=f"Failed to import backup data: {str(exc)}")
+
+
+# --- Real Docker Engine Integration & Diagnostics ---
+def docker_unix_get_json(path: str, sock_path: str = "/var/run/docker.sock", timeout: float = 4.0):
+    conn = UnixSocketHTTPConnection(sock_path, timeout=timeout)
+    try:
+        conn.request("GET", path, headers={"Host": "localhost", "Accept": "application/json"})
+        res = conn.getresponse()
+        raw = res.read().decode("utf-8", errors="replace").strip()
+        if res.status != 200:
+            raise RuntimeError(f"HTTP {res.status}: {raw[:160]}")
+        return json.loads(raw) if raw else {}
+    finally:
+        conn.close()
+
+
+def diagnose_docker_engine(sock_path: str = "/var/run/docker.sock") -> dict:
+    if not os.path.exists(sock_path):
+        return {
+            "connected": False,
+            "health": "Unavailable",
+            "status": "unreachable",
+            "reason": "Docker socket (/var/run/docker.sock) is not mounted inside container.",
+            "engine_version": None,
+            "api_version": None,
+            "containers_summary": {"total": 0, "running": 0, "stopped": 0, "paused": 0},
+            "containers": [],
+        }
+
+    try:
+        st = os.stat(sock_path)
+        sock_gid = st.st_gid
+        sock_mode = oct(st.st_mode & 0o777)
+    except Exception:
+        sock_gid = None
+        sock_mode = None
+
+    try:
+        # 1. Ping Docker daemon
+        conn = UnixSocketHTTPConnection(sock_path, timeout=3.0)
+        conn.request("GET", "/_ping", headers={"Host": "localhost"})
+        ping_res = conn.getresponse()
+        ping_body = ping_res.read().decode("utf-8", errors="replace").strip()
+        conn.close()
+        if ping_res.status != 200:
+            return {
+                "connected": False,
+                "health": "Error",
+                "status": "unreachable",
+                "reason": f"Docker daemon ping returned HTTP {ping_res.status}",
+                "engine_version": None,
+                "api_version": None,
+                "containers_summary": {"total": 0, "running": 0, "stopped": 0, "paused": 0},
+                "containers": [],
+            }
+
+        # 2. Fetch Docker Engine version & container list
+        ver_data = docker_unix_get_json("/version", sock_path=sock_path)
+        raw_containers = docker_unix_get_json("/containers/json?all=1", sock_path=sock_path)
+        if not isinstance(raw_containers, list):
+            raw_containers = []
+
+        running_cnt = 0
+        paused_cnt = 0
+        stopped_cnt = 0
+        container_items = []
+        for c in raw_containers:
+            state = str(c.get("State") or "").lower()
+            if state == "running":
+                running_cnt += 1
+            elif state == "paused":
+                paused_cnt += 1
+            else:
+                stopped_cnt += 1
+            names = c.get("Names") or []
+            clean_name = names[0].lstrip("/") if names else (c.get("Id") or "")[:12]
+            container_items.append({
+                "id": (c.get("Id") or "")[:12],
+                "name": clean_name,
+                "image": c.get("Image") or "",
+                "state": state,
+                "status": c.get("Status") or state,
+            })
+
+        engine_ver = ver_data.get("Version") or "Unknown"
+        api_ver = ver_data.get("ApiVersion") or "Unknown"
+        return {
+            "connected": True,
+            "health": "Healthy",
+            "status": "connected",
+            "reason": f"Connected to Docker Engine v{engine_ver} (API v{api_ver}, {running_cnt}/{len(raw_containers)} running)",
+            "engine_version": engine_ver,
+            "api_version": api_ver,
+            "socket_gid": sock_gid,
+            "socket_mode": sock_mode,
+            "containers_summary": {
+                "total": len(raw_containers),
+                "running": running_cnt,
+                "paused": paused_cnt,
+                "stopped": stopped_cnt,
+            },
+            "containers": container_items,
+        }
+    except PermissionError:
+        proc_uid = os.getuid()
+        proc_gid = os.getgid()
+        proc_groups = os.getgroups()
+        return {
+            "connected": False,
+            "health": "Error",
+            "status": "permission_denied",
+            "reason": (
+                f"Permission denied on {sock_path} "
+                f"(socket GID={sock_gid}, mode={sock_mode}; container UID={proc_uid}, GID={proc_gid}, groups={proc_groups})."
+            ),
+            "engine_version": None,
+            "api_version": None,
+            "containers_summary": {"total": 0, "running": 0, "stopped": 0, "paused": 0},
+            "containers": [],
+        }
+    except Exception as exc:
+        logger.warning("Docker socket connection error on %s: %s", sock_path, exc)
+        return {
+            "connected": False,
+            "health": "Unavailable",
+            "status": "unreachable",
+            "reason": f"Docker daemon unreachable ({type(exc).__name__}: {str(exc)})",
+            "engine_version": None,
+            "api_version": None,
+            "containers_summary": {"total": 0, "running": 0, "stopped": 0, "paused": 0},
+            "containers": [],
+        }
+
+
+@app.get("/api/v1/integrations/docker/containers")
+def list_docker_engine_containers():
+    diag = diagnose_docker_engine("/var/run/docker.sock")
+    if not diag["connected"]:
+        raise HTTPException(status_code=503, detail=diag["reason"])
+    return {
+        "connected": True,
+        "engine_version": diag["engine_version"],
+        "api_version": diag["api_version"],
+        "summary": diag["containers_summary"],
+        "containers": diag["containers"],
+    }
+
 
 @app.get("/api/v1/integrations/docker/logs/{container_name}")
 def get_container_logs(
     container_name: str,
     tail: Optional[int] = None,
-    session: Session = Depends(get_session)
 ):
-    cfg = get_or_create_settings(session)
-    line_limit = tail if (tail in ALLOWED_LOG_LIMITS) else (cfg.container_log_limit or 250)
-    conn = UnixSocketHTTPConnection("/var/run/docker.sock")
+    cfg = read_settings_from_sqlite()
+    line_limit = tail if (tail in ALLOWED_LOG_LIMITS) else (cfg.get("container_log_limit") or 250)
+    sock_path = "/var/run/docker.sock"
+    if not os.path.exists(sock_path):
+        raise HTTPException(status_code=503, detail="Docker socket (/var/run/docker.sock) is not mounted.")
+    conn = UnixSocketHTTPConnection(sock_path, timeout=5.0)
     try:
-        conn.request("GET", f"/containers/{container_name}/logs?stdout=1&stderr=1&tail={line_limit}&timestamps=1")
+        conn.request(
+            "GET",
+            f"/containers/{container_name}/logs?stdout=1&stderr=1&tail={line_limit}&timestamps=1",
+            headers={"Host": "localhost"},
+        )
         res = conn.getresponse()
         raw = res.read()
         if res.status != 200:
@@ -1110,10 +2022,17 @@ def get_container_logs(
         }
     except HTTPException:
         raise
+    except PermissionError:
+        raise HTTPException(
+            status_code=403,
+            detail="Permission denied accessing /var/run/docker.sock. Check container group ID (GID).",
+        )
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Unable to read container logs: {str(e)}")
+        logger.error("Error reading container logs for %s: %s", container_name, e)
+        raise HTTPException(status_code=500, detail="Unable to read container logs from Docker daemon.")
     finally:
         conn.close()
+
 
 @app.get("/api/v1/account")
 def get_operator_account(session: Session = Depends(get_session)):
@@ -1127,11 +2046,12 @@ def get_operator_account(session: Session = Depends(get_session)):
         "hash_algorithm": "PBKDF2-HMAC-SHA256 (100,000 iterations)",
     }
 
+
 @app.put("/api/v1/account/credentials")
 def update_operator_credentials(
     payload: CredentialsUpdatePayload,
     request: Request,
-    session: Session = Depends(get_session)
+    session: Session = Depends(get_session),
 ):
     op = session.exec(select(Operator)).first()
     if not op:
@@ -1152,7 +2072,10 @@ def update_operator_credentials(
             if len(clean_user) < 3 or len(clean_user) > 32:
                 raise HTTPException(status_code=400, detail="Username must be between 3 and 32 characters.")
             if not all(c.isalnum() or c in "_-." for c in clean_user):
-                raise HTTPException(status_code=400, detail="Username may only contain letters, numbers, '_', '-', and '.'.")
+                raise HTTPException(
+                    status_code=400,
+                    detail="Username may only contain letters, numbers, '_', '-', and '.'.",
+                )
             op.username = clean_user
             changed_fields.append("username")
 
@@ -1185,6 +2108,7 @@ def update_operator_credentials(
         "active_sessions": len(VALID_SESSIONS),
     }
 
+
 @app.post("/api/v1/account/sessions/revoke")
 def revoke_other_operator_sessions(request: Request):
     current_token = request.cookies.get("netdock_session")
@@ -1198,50 +2122,179 @@ def revoke_other_operator_sessions(request: Request):
         "active_sessions": len(VALID_SESSIONS),
     }
 
+
+# --- Centralized Database Diagnostic & System Health Endpoint ---
+def run_centralized_db_diagnostics() -> dict:
+    db_file = resolve_active_db_path()
+    wal_file = f"{db_file}-wal"
+    shm_file = f"{db_file}-shm"
+
+    exists = os.path.exists(db_file)
+    readable = os.access(db_file, os.R_OK) if exists else False
+    writable = os.access(db_file, os.W_OK) if exists else False
+
+    integrity_status = "error"
+    journal_mode = "unknown"
+    tables_found = []
+    required_tables = {"subnet", "host", "service", "operator", "customdevicetype", "appsettings"}
+    missing_tables = []
+    settings_rw_ok = False
+    error_detail = None
+
+    conn = None
+    try:
+        conn = sqlite3.connect(db_file, timeout=10.0)
+        cur = conn.cursor()
+        cur.execute("PRAGMA wal_checkpoint(PASSIVE);")
+
+        jm_row = cur.execute("PRAGMA journal_mode;").fetchone()
+        if jm_row:
+            journal_mode = str(jm_row[0]).upper()
+
+        ic_row = cur.execute("PRAGMA integrity_check;").fetchone()
+        if ic_row:
+            integrity_status = str(ic_row[0])
+
+        tables_found = [
+            r[0]
+            for r in cur.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name"
+            ).fetchall()
+        ]
+        missing_tables = sorted(list(required_tables - set(tables_found)))
+
+        # Non-destructive settings read & write verification (re-writes existing updated_at value)
+        cur.execute("SELECT theme, updated_at FROM appsettings WHERE id = 'global'")
+        s_row = cur.fetchone()
+        if s_row is not None:
+            cur.execute("UPDATE appsettings SET updated_at = ? WHERE id = 'global'", (s_row[1],))
+            conn.commit()
+            settings_rw_ok = True
+    except Exception as exc:
+        logger.exception("Database diagnostic failure on %s: %s", db_file, exc)
+        error_detail = f"{type(exc).__name__}: {str(exc)}"
+    finally:
+        if conn:
+            conn.close()
+
+    main_size = os.path.getsize(db_file) if os.path.exists(db_file) else 0
+    wal_size = os.path.getsize(wal_file) if os.path.exists(wal_file) else 0
+    shm_size = os.path.getsize(shm_file) if os.path.exists(shm_file) else 0
+    total_size = main_size + wal_size
+
+    is_healthy = (
+        exists
+        and readable
+        and writable
+        and integrity_status.lower() == "ok"
+        and len(missing_tables) == 0
+        and settings_rw_ok
+    )
+
+    return {
+        "database_path": db_file,
+        "database_exists": exists,
+        "readable": readable,
+        "writable": writable,
+        "database_healthy": is_healthy,
+        "health_label": "Healthy" if is_healthy else ("Degraded" if exists and readable else "Error"),
+        "integrity_check": integrity_status,
+        "journal_mode": journal_mode,
+        "tables": tables_found,
+        "missing_tables": missing_tables,
+        "migrations_complete": len(missing_tables) == 0,
+        "settings_rw_verified": settings_rw_ok,
+        "database_size_bytes": total_size,
+        "main_file_bytes": main_size,
+        "wal_file_bytes": wal_size,
+        "shm_file_bytes": shm_size,
+        "error": error_detail,
+    }
+
+
+@app.get("/api/v1/system/diagnostics")
+def get_detailed_diagnostics():
+    db_diag = run_centralized_db_diagnostics()
+    docker_diag = diagnose_docker_engine("/var/run/docker.sock")
+    return {
+        "timestamp": int(time.time()),
+        "database": db_diag,
+        "docker": docker_diag,
+    }
+
+
 @app.get("/api/v1/system/info")
 def get_system_information(session: Session = Depends(get_session)):
-    db_file = "/data/netdock.db"
-    db_size = os.path.getsize(db_file) if os.path.exists(db_file) else 0
-
-    docker_ok = False
-    docker_err = None
-    sock_path = "/var/run/docker.sock"
-    try:
-        conn = UnixSocketHTTPConnection(sock_path)
-        conn.request("GET", "/_ping")
-        res = conn.getresponse()
-        docker_ok = (res.status == 200)
-        conn.close()
-    except Exception as e:
-        docker_err = str(e)
+    db_diag = run_centralized_db_diagnostics()
+    docker_diag = diagnose_docker_engine("/var/run/docker.sock")
 
     hosts_list = session.exec(select(Host)).all()
     subnets_list = session.exec(select(Subnet)).all()
     services_list = session.exec(select(Service)).all()
+    custom_types_list = session.exec(select(CustomDeviceType)).all()
+
+    active_count = sum(
+        1 for h in hosts_list
+        if (h.status or "").lower() in {"active", "online"}
+    )
+    tracked_db_containers = sum(
+        1 for h in hosts_list
+        if (h.device_type or "").lower() == "container"
+    )
+    live_docker_containers = docker_diag["containers_summary"]["total"]
+    container_count = max(tracked_db_containers, live_docker_containers)
+
+    if db_diag["database_healthy"] and docker_diag["connected"]:
+        overall_status = "healthy"
+    elif db_diag["database_healthy"]:
+        overall_status = "degraded"
+    else:
+        overall_status = "error"
 
     return {
         "app_name": "NetDock",
         "app_version": APP_VERSION,
         "environment": "Production",
-        "api_status": "healthy",
+        "api_status": overall_status,
+        "api_health_label": "Healthy" if db_diag["database_healthy"] else "Degraded",
         "uptime_seconds": max(0, int(time.time()) - PROCESS_START_TIME),
         "started_at": PROCESS_START_TIME,
         "python_version": platform.python_version(),
         "os_platform": f"{platform.system()} {platform.release()} ({platform.machine()})",
-        "database_path": db_file,
-        "database_size_bytes": db_size,
-        "docker_socket_path": sock_path,
-        "docker_status": "connected" if docker_ok else "unreachable",
-        "docker_error": docker_err,
+        "database_path": db_diag["database_path"],
+        "database_exists": db_diag["database_exists"],
+        "database_readable": db_diag["readable"],
+        "database_writable": db_diag["writable"],
+        "database_healthy": db_diag["database_healthy"],
+        "database_health_label": db_diag["health_label"],
+        "database_integrity": db_diag["integrity_check"],
+        "settings_rw_verified": db_diag["settings_rw_verified"],
+        "journal_mode": db_diag["journal_mode"],
+        "database_size_bytes": db_diag["database_size_bytes"],
+        "database_main_bytes": db_diag["main_file_bytes"],
+        "database_wal_bytes": db_diag["wal_file_bytes"],
+        "docker_socket_path": "/var/run/docker.sock",
+        "docker_status": "connected" if docker_diag["connected"] else "unreachable",
+        "docker_health_label": docker_diag["health"],
+        "docker_diagnostic_status": docker_diag["status"],
+        "docker_engine_version": docker_diag["engine_version"],
+        "docker_api_version": docker_diag["api_version"],
+        "docker_containers_summary": docker_diag["containers_summary"],
+        "docker_error": None if docker_diag["connected"] else docker_diag["reason"],
+        "docker_message": docker_diag["reason"],
         "counts": {
             "hosts": len(hosts_list),
-            "active_hosts": sum(1 for h in hosts_list if h.status == "active"),
-            "containers": sum(1 for h in hosts_list if h.device_type == "container"),
+            "active_hosts": active_count,
+            "containers": container_count,
+            "tracked_containers": tracked_db_containers,
+            "live_docker_containers": live_docker_containers,
             "subnets": len(subnets_list),
             "services": len(services_list),
+            "custom_device_types": len(custom_types_list),
             "active_sessions": len(VALID_SESSIONS),
         },
     }
+
 
 # --- Static Frontend Serving ---
 STATIC_DIR = "/app/static"

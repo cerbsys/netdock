@@ -372,6 +372,31 @@ function formatDate(epochSeconds) {
   }
 }
 
+
+async function safeParseResponse(res, fallbackErrorMsg = 'Request failed.') {
+  const contentType = (res.headers.get('content-type') || '').toLowerCase();
+  const rawText = await res.text();
+  let parsed = null;
+  if (rawText && (contentType.includes('application/json') || rawText.trim().startsWith('{') || rawText.trim().startsWith('['))) {
+    try {
+      parsed = JSON.parse(rawText);
+    } catch (_) {
+      parsed = null;
+    }
+  }
+  if (!res.ok) {
+    const errMsg =
+      (parsed && (parsed.message || parsed.detail || parsed.error)) ||
+      (rawText && !rawText.trim().startsWith('<') && rawText.length < 180 ? rawText.trim() : null) ||
+      `${fallbackErrorMsg} (HTTP ${res.status})`;
+    throw new Error(errMsg);
+  }
+  if (parsed === null) {
+    throw new Error('Server returned an unexpected non-JSON response.');
+  }
+  return parsed;
+}
+
 export default function SettingsView({
   appSettings,
   hosts = [],
@@ -478,8 +503,7 @@ export default function SettingsView({
         `/api/v1/integrations/docker/logs/${encodeURIComponent(name)}?tail=${tail}`,
         { credentials: 'same-origin' }
       );
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.detail || 'Failed to fetch container logs');
+      const data = await safeParseResponse(res, 'Failed to fetch container logs');
       setContainerLogs(data.lines || []);
     } catch (err) {
       setContainerLogs([`[Error] ${err.message}`]);
@@ -513,10 +537,7 @@ export default function SettingsView({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(patch)
       });
-      const data = await res.json();
-      if (!res.ok) {
-        throw new Error(data.detail || 'Failed to update settings.');
-      }
+      const data = await safeParseResponse(res, 'Failed to update settings.');
       setDraft(data);
       applyAppearanceToDocument(data);
       if (onUpdateSettings) onUpdateSettings(data);
@@ -553,10 +574,7 @@ export default function SettingsView({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(credForm)
       });
-      const data = await res.json();
-      if (!res.ok) {
-        throw new Error(data.detail || 'Failed to update operator credentials.');
-      }
+      const data = await safeParseResponse(res, 'Failed to update operator credentials.');
       setAccountInfo((prev) => ({
         ...prev,
         username: data.username,
@@ -627,7 +645,7 @@ export default function SettingsView({
         credentials: 'same-origin'
       });
       if (!res.ok) throw new Error('Failed to reset settings.');
-      const fresh = await res.json();
+      const fresh = await safeParseResponse(res);
       setDraft(fresh);
       applyAppearanceToDocument(fresh);
       if (onUpdateSettings) onUpdateSettings(fresh);
@@ -646,7 +664,7 @@ export default function SettingsView({
         method: 'POST',
         credentials: 'same-origin'
       });
-      const data = await res.json();
+      const data = await safeParseResponse(res);
       if (!res.ok) throw new Error('Failed to revoke other sessions.');
       setAccountInfo((prev) => ({ ...prev, active_sessions: data.active_sessions }));
       if (onNotify) {

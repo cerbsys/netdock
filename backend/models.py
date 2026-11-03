@@ -1,15 +1,14 @@
 from typing import Optional
 from sqlmodel import SQLModel, Field
-
+import time
 
 class Subnet(SQLModel, table=True):
     id: str = Field(primary_key=True)
     name: str
     cidr: str
-    gateway: Optional[str] = ""
-    vlan_id: Optional[int] = None
-    description: Optional[str] = ""
-
+    gateway: Optional[str] = Field(default="")
+    vlan_id: Optional[int] = Field(default=None)
+    description: Optional[str] = Field(default="")
 
 class Host(SQLModel, table=True):
     id: str = Field(primary_key=True)
@@ -19,7 +18,7 @@ class Host(SQLModel, table=True):
     device_type: str = Field(default="Physical Server")
     manufacturer: Optional[str] = Field(default="")
     model: Optional[str] = Field(default="")
-    ip: str = Field(default="")
+    ip: str
     ipv6: Optional[str] = Field(default="")
     mac: Optional[str] = Field(default="")
     location: Optional[str] = Field(default="")
@@ -31,34 +30,30 @@ class Host(SQLModel, table=True):
     parent_id: Optional[str] = Field(default=None)
     notes: Optional[str] = Field(default="")
     specs_json: Optional[str] = Field(default="{}")
-    updated_at: Optional[int] = Field(default=0)
+    updated_at: Optional[int] = Field(default_factory=lambda: int(time.time()))
 
+class Service(SQLModel, table=True):
+    id: str = Field(primary_key=True)
+    host_id: str = Field(index=True)
+    name: str
+    port: int
+    protocol: str = Field(default="TCP")
+    status: str = Field(default="running")
+
+class Operator(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    username: str = Field(index=True, unique=True)
+    password_hash: str
+    salt: str
+    created_at: int = Field(default_factory=lambda: int(time.time()))
 
 class CustomDeviceType(SQLModel, table=True):
     id: str = Field(primary_key=True)
-    name: str
+    name: str = Field(index=True, unique=True)
     category: str = Field(default="Other")
     icon_name: str = Field(default="Box")
     fields_json: str = Field(default="[]")
-    created_at: int = Field(default=0)
-
-
-class Service(SQLModel, table=True):
-    id: Optional[int] = Field(default=None, primary_key=True)
-    host_id: str
-    port: int
-    protocol: str = "tcp"
-    service_name: str
-    status: str = "open"
-
-
-class Operator(SQLModel, table=True):
-    id: str = Field(default="sys_op", primary_key=True)
-    username: str
-    salt: str
-    password_hash: str
-    created_at: int = Field(default=0)
-
+    created_at: int = Field(default_factory=lambda: int(time.time()))
 
 class AppSettings(SQLModel, table=True):
     id: str = Field(default="global", primary_key=True)
@@ -71,4 +66,4 @@ class AppSettings(SQLModel, table=True):
     container_sort_order: str = Field(default="asc")
     auto_refresh_interval: int = Field(default=0)
     confirm_destructive: bool = Field(default=True)
-    updated_at: int = Field(default=0)
+    updated_at: int = Field(default_factory=lambda: int(time.time()))

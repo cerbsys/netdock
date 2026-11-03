@@ -859,6 +859,107 @@ export default function App() {
     setTimeout(() => setNotice(null), 4000);
   }, []);
 
+  const handleExportBackup = async () => {
+    setError(null);
+    try {
+      const res = await fetch(`${API_BASE}/backup/export`, {
+        method: 'GET',
+        headers: { Accept: 'application/json' }
+      });
+      const contentType = (res.headers.get('content-type') || '').toLowerCase();
+      const rawText = await res.text();
+
+      if (!res.ok) {
+        let errDetail = 'Could not generate backup file.';
+        try {
+          const errJson = JSON.parse(rawText);
+          errDetail = errJson.message || errJson.detail || errDetail;
+        } catch (_) {}
+        throw new Error(errDetail);
+      }
+
+      // Validate that the downloaded payload is valid JSON before saving
+      let parsedBackup;
+      try {
+        parsedBackup = JSON.parse(rawText);
+      } catch (_) {
+        throw new Error('Server returned invalid JSON while generating backup.');
+      }
+
+      if (!parsedBackup || typeof parsedBackup !== 'object') {
+        throw new Error('Generated backup payload is empty or invalid.');
+      }
+
+      let filename = `netdock-backup-${new Date().toISOString().slice(0, 10)}.json`;
+      const disp = res.headers.get('content-disposition') || '';
+      const match = disp.match(/filename="?([^";]+)"?/i);
+      if (match && match[1]) {
+        filename = match[1];
+      }
+
+      const blob = new Blob([ JSON.stringify(parsedBackup, null, 2) ], {
+        type: 'application/json;charset=utf-8'
+      });
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      window.URL.revokeObjectURL(url);
+
+      notifyBanner(`Exported backup (${filename}) successfully.`);
+    } catch (err) {
+      setError(err.message || 'Could not generate backup file.');
+    }
+  };
+
+  const handleImportBackup = async (event) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    setError(null);
+
+    try {
+      const fileText = await file.text();
+      let parsed;
+      try {
+        parsed = JSON.parse(fileText);
+      } catch (_) {
+        throw new Error('Selected file is not valid JSON.');
+      }
+
+      const res = await fetch(`${API_BASE}/backup/import`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(parsed)
+      });
+
+      const respText = await res.text();
+      let respData = null;
+      try {
+        respData = JSON.parse(respText);
+      } catch (_) {}
+
+      if (!res.ok) {
+        throw new Error(
+          (respData && (respData.message || respData.detail)) ||
+            `Backup import failed (HTTP ${res.status}).`
+        );
+      }
+
+      await fetchData();
+      if (typeof fetchAppSettings === 'function') {
+        await fetchAppSettings();
+      }
+      notifyBanner((respData && respData.message) || 'Backup imported successfully.');
+    } catch (err) {
+      setError(err.message || 'Failed to import JSON backup.');
+    } finally {
+      event.target.value = '';
+    }
+  };
+
   const handleSaveDeviceModal = async (payload, isEdit) => {
     const url = isEdit ? `${API_BASE}/hosts/${payload.id}` : `${API_BASE}/hosts`;
     const method = isEdit ? 'PUT' : 'POST';
@@ -1524,7 +1625,7 @@ export default function App() {
 
               <button
                 type="button"
-                onClick={handleExport}
+                onClick={handleExportBackup}
                 title={sidebarCollapsed ? 'Export JSON Backup' : undefined}
                 style={{
                   width: '100%',
