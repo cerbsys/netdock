@@ -2,6 +2,7 @@ from typing import Optional
 from sqlmodel import SQLModel, Field
 import time
 
+
 class Subnet(SQLModel, table=True):
     id: str = Field(primary_key=True)
     name: str
@@ -9,6 +10,7 @@ class Subnet(SQLModel, table=True):
     gateway: Optional[str] = Field(default="")
     vlan_id: Optional[int] = Field(default=None)
     description: Optional[str] = Field(default="")
+
 
 class Host(SQLModel, table=True):
     id: str = Field(primary_key=True)
@@ -32,6 +34,7 @@ class Host(SQLModel, table=True):
     specs_json: Optional[str] = Field(default="{}")
     updated_at: Optional[int] = Field(default_factory=lambda: int(time.time()))
 
+
 class Service(SQLModel, table=True):
     id: str = Field(primary_key=True)
     host_id: str = Field(index=True)
@@ -40,12 +43,14 @@ class Service(SQLModel, table=True):
     protocol: str = Field(default="TCP")
     status: str = Field(default="running")
 
+
 class Operator(SQLModel, table=True):
     id: str = Field(default="sys_op", primary_key=True)
     username: str = Field(index=True, unique=True)
     password_hash: str
     salt: str
-    created_at: int = Field(default=0)
+    created_at: int = Field(default_factory=lambda: int(time.time()))
+
 
 class CustomDeviceType(SQLModel, table=True):
     id: str = Field(primary_key=True)
@@ -55,11 +60,15 @@ class CustomDeviceType(SQLModel, table=True):
     fields_json: str = Field(default="[]")
     created_at: int = Field(default_factory=lambda: int(time.time()))
 
+
 class AppSettings(SQLModel, table=True):
     id: str = Field(default="global", primary_key=True)
     theme: str = Field(default="dark")
     accent_color: str = Field(default="indigo")
     density: str = Field(default="default")
+    default_tab: str = Field(default="dashboard")
+    docker_socket_path: str = Field(default="/var/run/docker.sock")
+    docker_parent_host: str = Field(default="")
     container_log_limit: int = Field(default=250)
     log_refresh_interval: int = Field(default=5)
     container_sort_by: str = Field(default="hostname")

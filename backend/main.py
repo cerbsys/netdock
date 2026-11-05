@@ -350,9 +350,101 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+def migrate_operator_schema_on_engine() -> None:
+    target_dbs = set()
+    try:
+        eng_db = getattr(getattr(engine, "url", None), "database", None)
+        if eng_db:
+            target_dbs.add(eng_db)
+    except Exception:
+        pass
+    if "ACTIVE_DB_PATH" in globals() and ACTIVE_DB_PATH:
+        target_dbs.add(str(ACTIVE_DB_PATH))
+    if "resolve_active_db_path" in globals():
+        try:
+            target_dbs.add(str(resolve_active_db_path()))
+        except Exception:
+            pass
+
+    create_op_ddl = (
+        'CREATE TABLE IF NOT EXISTS "operator" ('
+        'id TEXT NOT NULL PRIMARY KEY, '
+        'username TEXT NOT NULL UNIQUE, '
+        'password_hash TEXT NOT NULL, '
+        'salt TEXT NOT NULL, '
+        'created_at INTEGER NOT NULL DEFAULT 0)'
+    )
+
+    for db_p in target_dbs:
+        if not db_p or db_p == ":memory:":
+            continue
+        try:
+            os.makedirs(os.path.dirname(os.path.abspath(db_p)), exist_ok=True)
+            conn = sqlite3.connect(db_p, timeout=30.0)
+            conn.row_factory = sqlite3.Row
+            try:
+                cur = conn.cursor()
+                cur.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='operator'")
+                row = cur.fetchone()
+                if not row:
+                    cur.execute(create_op_ddl)
+                    conn.commit()
+                    continue
+
+                ddl_sql = (row["sql"] or "").upper()
+                cur.execute('PRAGMA table_info("operator")')
+                cols = [dict(r) for r in cur.fetchall()]
+                id_col = next((c for c in cols if c["name"] == "id"), None)
+                id_type = (id_col.get("type") or "").upper() if id_col else ""
+
+                if "INT" in id_type or "AUTOINCREMENT" in ddl_sql:
+                    logger.info("[DB-MIGRATE] Migrating legacy operator table (id=%s) to TEXT PRIMARY KEY in %s", id_type, db_p)
+                    cur.execute('SELECT id, username, password_hash, salt, created_at FROM "operator"')
+                    existing_ops = [dict(r) for r in cur.fetchall()]
+                    cur.execute('DROP TABLE IF EXISTS "operator_v2_migration"')
+                    cur.execute(
+                        'CREATE TABLE "operator_v2_migration" ('
+                        'id TEXT NOT NULL PRIMARY KEY, '
+                        'username TEXT NOT NULL UNIQUE, '
+                        'password_hash TEXT NOT NULL, '
+                        'salt TEXT NOT NULL, '
+                        'created_at INTEGER NOT NULL DEFAULT 0)'
+                    )
+                    for idx, op_row in enumerate(existing_ops):
+                        raw_id = op_row.get("id")
+                        new_id = "sys_op" if (idx == 0 or raw_id in (None, 1, "1", "sys_op")) else str(raw_id)
+                        cur.execute(
+                            'INSERT OR REPLACE INTO "operator_v2_migration" (id, username, password_hash, salt, created_at) VALUES (?, ?, ?, ?, ?)',
+                            (
+                                new_id,
+                                str(op_row.get("username") or "admin"),
+                                str(op_row.get("password_hash") or ""),
+                                str(op_row.get("salt") or ""),
+                                int(op_row.get("created_at") or int(time.time())),
+                            ),
+                        )
+                    cur.execute('DROP TABLE "operator"')
+                    cur.execute('ALTER TABLE "operator_v2_migration" RENAME TO "operator"')
+                    conn.commit()
+                    logger.info("[DB-MIGRATE] Migrated %d operator record(s) to TEXT PRIMARY KEY.", len(existing_ops))
+            except Exception:
+                conn.rollback()
+                raise
+            finally:
+                conn.close()
+        except Exception as exc:
+            logger.error("[DB-MIGRATE] Error checking/migrating operator schema in %s: %s", db_p, exc)
+
+
 def has_operator_account() -> bool:
-    with Session(engine) as session:
-        return session.exec(select(Operator)).first() is not None
+    try:
+        migrate_operator_schema_on_engine()
+        with Session(engine) as session:
+            return session.exec(select(Operator)).first() is not None
+    except Exception as exc:
+        logger.error("[AUTH] Error checking operator account state: %s", exc)
+        return False
+
 
 # --- Global Security Barrier ---
 @app.middleware("http")
@@ -387,41 +479,56 @@ async def security_barrier(request: Request, call_next):
 
 @app.post("/auth/setup")
 async def handle_setup(request: Request):
+    migrate_operator_schema_on_engine()
     if has_operator_account():
         return RedirectResponse(url="/", status_code=303)
 
-    form = await request.form()
-    username = form.get("username", "").strip()
-    password = form.get("password", "")
-    confirm_password = form.get("confirm_password", "")
+    try:
+        form = await request.form()
+        username = (form.get("username") or "").strip()
+        password = form.get("password") or ""
+        confirm_password = form.get("confirm_password") or ""
+    except Exception as exc:
+        logger.error("[AUTH-SETUP] Invalid form payload: %s", exc)
+        err = '<div class="err-box">Invalid setup request payload. Please try again.</div>'
+        return HTMLResponse(content=SETUP_HTML.replace("__ERROR_PLACEHOLDER__", err), status_code=400, headers=NO_CACHE_HEADERS)
 
     if not username or len(password) < 6:
         err = '<div class="err-box">Username is required and password must be at least 6 characters.</div>'
-        return HTMLResponse(content=SETUP_HTML.replace("__ERROR_PLACEHOLDER__", err), status_code=400)
+        return HTMLResponse(content=SETUP_HTML.replace("__ERROR_PLACEHOLDER__", err), status_code=400, headers=NO_CACHE_HEADERS)
 
     if password != confirm_password:
         err = '<div class="err-box">Passwords do not match. Please try again.</div>'
-        return HTMLResponse(content=SETUP_HTML.replace("__ERROR_PLACEHOLDER__", err), status_code=400)
+        return HTMLResponse(content=SETUP_HTML.replace("__ERROR_PLACEHOLDER__", err), status_code=400, headers=NO_CACHE_HEADERS)
 
     salt = secrets.token_hex(16)
     p_hash = hash_secret(password, salt)
+    now_ts = int(time.time())
 
-    with Session(engine) as session:
-        try:
-            repair_operator_table_everywhere()
-        except Exception:
-            pass
-        new_op = Operator(
-            id="sys_op",
-            username=username,
-            salt=salt,
-            password_hash=p_hash,
-            created_at=int(time.time())
-        )
-        session.add(new_op)
-        session.commit()
+    try:
+        migrate_operator_schema_on_engine()
+        with Session(engine) as session:
+            existing = session.exec(select(Operator)).first()
+            if existing is not None:
+                logger.warning("[AUTH-SETUP] Setup attempted when operator account already exists; redirecting.")
+                return RedirectResponse(url="/", status_code=303)
 
-    # Automatically initialize session upon account creation
+            new_op = Operator(
+                id="sys_op",
+                username=username,
+                salt=salt,
+                password_hash=p_hash,
+                created_at=now_ts,
+            )
+            session.add(new_op)
+            session.commit()
+            session.refresh(new_op)
+            logger.info("[AUTH-SETUP] Provisioned initial operator account username=%r (id=%r).", new_op.username, new_op.id)
+    except Exception as exc:
+        logger.exception("[AUTH-SETUP] Database error while provisioning initial operator account: %s", exc)
+        err = '<div class="err-box">Unable to create administrator account due to a database error. Please try again.</div>'
+        return HTMLResponse(content=SETUP_HTML.replace("__ERROR_PLACEHOLDER__", err), status_code=500, headers=NO_CACHE_HEADERS)
+
     token = secrets.token_urlsafe(32)
     VALID_SESSIONS.add(token)
     response = RedirectResponse(url="/", status_code=303)
@@ -431,36 +538,51 @@ async def handle_setup(request: Request):
         httponly=True,
         samesite="lax",
         path="/",
-        max_age=86400 * 7
+        max_age=86400 * 7,
     )
     return response
 
+
 @app.post("/auth/login")
 async def handle_login(request: Request):
-    form = await request.form()
-    username = form.get("username", "").strip()
-    password = form.get("password", "")
+    migrate_operator_schema_on_engine()
+    if not has_operator_account():
+        return RedirectResponse(url="/", status_code=303)
 
-    with Session(engine) as session:
-        op = session.exec(select(Operator).where(Operator.username == username)).first()
-        if op:
-            computed = hash_secret(password, op.salt)
-            if secrets.compare_digest(computed, op.password_hash):
-                token = secrets.token_urlsafe(32)
-                VALID_SESSIONS.add(token)
-                response = RedirectResponse(url="/", status_code=303)
-                response.set_cookie(
-                    key="netdock_session",
-                    value=token,
-                    httponly=True,
-                    samesite="lax",
-                    path="/",
-                    max_age=86400 * 7
-                )
-                return response
+    try:
+        form = await request.form()
+        username = (form.get("username") or "").strip()
+        password = form.get("password") or ""
+    except Exception as exc:
+        logger.error("[AUTH-LOGIN] Invalid login form submission: %s", exc)
+        error_banner = '<div class="err-box">Invalid login request. Please try again.</div>'
+        return HTMLResponse(content=LOGIN_HTML.replace("__ERROR_PLACEHOLDER__", error_banner), status_code=400, headers=NO_CACHE_HEADERS)
 
-    error_banner = '<div class="err-box">Invalid operator key. Please try again.</div>'
-    return HTMLResponse(content=LOGIN_HTML.replace("__ERROR_PLACEHOLDER__", error_banner), status_code=401)
+    try:
+        with Session(engine) as session:
+            op = session.exec(select(Operator).where(Operator.username == username)).first()
+    except Exception as exc:
+        logger.exception("[AUTH-LOGIN] Database error querying operator during login: %s", exc)
+        error_banner = '<div class="err-box">Unable to verify credentials due to a database error. Please try again.</div>'
+        return HTMLResponse(content=LOGIN_HTML.replace("__ERROR_PLACEHOLDER__", error_banner), status_code=500, headers=NO_CACHE_HEADERS)
+
+    if not op or hash_secret(password, op.salt) != op.password_hash:
+        error_banner = '<div class="err-box">Invalid operator key. Please try again.</div>'
+        return HTMLResponse(content=LOGIN_HTML.replace("__ERROR_PLACEHOLDER__", error_banner), status_code=401, headers=NO_CACHE_HEADERS)
+
+    token = secrets.token_urlsafe(32)
+    VALID_SESSIONS.add(token)
+    response = RedirectResponse(url="/", status_code=303)
+    response.set_cookie(
+        key="netdock_session",
+        value=token,
+        httponly=True,
+        samesite="lax",
+        path="/",
+        max_age=86400 * 7,
+    )
+    return response
+
 
 @app.get("/auth/login")
 async def get_login_page(request: Request):
