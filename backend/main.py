@@ -1352,6 +1352,41 @@ def ensure_all_schemas_and_migrate(force: bool = False) -> dict:
                             cur.execute(f'ALTER TABLE "{table_name}" ADD COLUMN "{col_name}" {col_def}')
                             migrations_applied.append(f"{table_name}.{col_name}")
 
+                                # Repair legacy operator table if id was created as INTEGER PRIMARY KEY instead of TEXT PRIMARY KEY
+                cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='operator'")
+                if cur.fetchone():
+                    cur.execute('PRAGMA table_info("operator")')
+                    op_cols = [dict(r) for r in cur.fetchall()]
+                    id_col = next((c for c in op_cols if c["name"] == "id"), None)
+                    if id_col and "INT" in (id_col.get("type") or "").upper():
+                        cur.execute('SELECT * FROM "operator"')
+                        existing_ops = [dict(r) for r in cur.fetchall()]
+                        cur.execute('ALTER TABLE "operator" RENAME TO "operator_legacy_int_id"')
+                        cur.execute("""
+                            CREATE TABLE "operator" (
+                                id TEXT NOT NULL PRIMARY KEY,
+                                username TEXT NOT NULL,
+                                password_hash TEXT NOT NULL,
+                                salt TEXT NOT NULL,
+                                created_at INTEGER NOT NULL DEFAULT 0
+                            )
+                        """)
+                        for idx, op_row in enumerate(existing_ops):
+                            raw_id = op_row.get("id")
+                            new_id = "sys_op" if (idx == 0 or raw_id in (None, 1, "1", "sys_op")) else str(raw_id)
+                            cur.execute(
+                                'INSERT OR REPLACE INTO "operator" (id, username, password_hash, salt, created_at) VALUES (?, ?, ?, ?, ?)',
+                                (
+                                    new_id,
+                                    op_row.get("username") or "admin",
+                                    op_row.get("password_hash") or "",
+                                    op_row.get("salt") or "",
+                                    int(op_row.get("created_at") or int(time.time())),
+                                )
+                            )
+                        cur.execute('DROP TABLE "operator_legacy_int_id"')
+                        migrations_applied.append("operator.id_int_to_text")
+
                 cur.execute("SELECT * FROM appsettings WHERE id = 'global'")
                 existing_row = cur.fetchone()
                 if not existing_row:
