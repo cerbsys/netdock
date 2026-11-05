@@ -2534,3 +2534,51 @@ try:
     ensure_all_schemas_and_migrate(force=True)
 except Exception as _startup_mig_exc:
     logger.warning("[DB-MIGRATE] Startup migration hook warning: %s", _startup_mig_exc)
+
+
+# Guaranteed SQLAlchemy hook: ensure operator.id is TEXT PRIMARY KEY before any INSERT INTO operator
+from sqlalchemy import event as _op_sa_event
+
+@_op_sa_event.listens_for(engine, "before_cursor_execute")
+def _ensure_operator_text_pk_before_insert(conn, cursor, statement, parameters, context, executemany):
+    stmt_upper = (statement or "").upper()
+    if "INSERT" in stmt_upper and "OPERATOR" in stmt_upper:
+        cursor.execute('PRAGMA table_info("operator")')
+        cols = cursor.fetchall()
+        for col in cols:
+            c_name = col[1] if isinstance(col, (tuple, list)) else col["name"]
+            c_type = (col[2] if isinstance(col, (tuple, list)) else col["type"]) or ""
+            if c_name == "id" and "INT" in str(c_type).upper():
+                cursor.execute('SELECT id, username, password_hash, salt, created_at FROM "operator"')
+                existing_rows = cursor.fetchall()
+                cursor.execute('DROP TABLE IF EXISTS "operator_legacy_int_id"')
+                cursor.execute('ALTER TABLE "operator" RENAME TO "operator_legacy_int_id"')
+                cursor.execute("""
+                    CREATE TABLE "operator" (
+                        id TEXT NOT NULL PRIMARY KEY,
+                        username TEXT NOT NULL,
+                        password_hash TEXT NOT NULL,
+                        salt TEXT NOT NULL,
+                        created_at INTEGER NOT NULL DEFAULT 0
+                    )
+                """)
+                for r in existing_rows:
+                    r_id = r[0] if isinstance(r, (tuple, list)) else r["id"]
+                    r_user = r[1] if isinstance(r, (tuple, list)) else r["username"]
+                    r_hash = r[2] if isinstance(r, (tuple, list)) else r["password_hash"]
+                    r_salt = r[3] if isinstance(r, (tuple, list)) else r["salt"]
+                    r_ts = r[4] if isinstance(r, (tuple, list)) else r["created_at"]
+                    new_id = "sys_op" if r_id in (None, 1, "1", "sys_op") else str(r_id)
+                    cursor.execute(
+                        'INSERT OR REPLACE INTO "operator" (id, username, password_hash, salt, created_at) VALUES (?, ?, ?, ?, ?)',
+                        (new_id, r_user, r_hash, r_salt, int(r_ts or 0))
+                    )
+                cursor.execute('DROP TABLE "operator_legacy_int_id"')
+                logger.info("[DB-MIGRATE] Converted operator.id from INTEGER to TEXT PRIMARY KEY prior to INSERT.")
+                break
+
+try:
+    repair_operator_table_everywhere()
+except Exception as _op_boot_err:
+    logger.warning("[DB-MIGRATE] Startup operator table check warning: %s", _op_boot_err)
+
