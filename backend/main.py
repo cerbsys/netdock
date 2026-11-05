@@ -1294,6 +1294,85 @@ def fetch_container_logs_lock_free(container_ref: str, tail: int = None, timesta
             pass
 
 
+def repair_operator_table_everywhere():
+    """Ensure the operator table uses id TEXT PRIMARY KEY across SQLAlchemy engine and all /data/*.db files."""
+    candidate_paths = set()
+    try:
+        candidate_paths.add(resolve_active_db_path())
+    except Exception:
+        pass
+    for p in ("/data/inventory.db", "/data/netdock.db"):
+        if os.path.exists(p) or os.path.exists(os.path.dirname(p)):
+            candidate_paths.add(p)
+    try:
+        eng_db = getattr(getattr(engine, "url", None), "database", None)
+        if eng_db:
+            candidate_paths.add(eng_db)
+    except Exception:
+        pass
+
+    for db_p in candidate_paths:
+        if not db_p:
+            continue
+        try:
+            os.makedirs(os.path.dirname(os.path.abspath(db_p)), exist_ok=True)
+            conn = sqlite3.connect(db_p, timeout=30.0)
+            conn.row_factory = sqlite3.Row
+            try:
+                cur = conn.cursor()
+                cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='operator'")
+                if not cur.fetchone():
+                    cur.execute("""
+                        CREATE TABLE IF NOT EXISTS "operator" (
+                            id TEXT NOT NULL PRIMARY KEY,
+                            username TEXT NOT NULL,
+                            password_hash TEXT NOT NULL,
+                            salt TEXT NOT NULL,
+                            created_at INTEGER NOT NULL DEFAULT 0
+                        )
+                    """)
+                    conn.commit()
+                    continue
+
+                cur.execute('PRAGMA table_info("operator")')
+                op_cols = [dict(r) for r in cur.fetchall()]
+                id_col = next((c for c in op_cols if c["name"] == "id"), None)
+                if id_col and "INT" in (id_col.get("type") or "").upper():
+                    cur.execute('SELECT * FROM "operator"')
+                    existing_ops = [dict(r) for r in cur.fetchall()]
+                    cur.execute('DROP TABLE IF EXISTS "operator_legacy_int_id"')
+                    cur.execute('ALTER TABLE "operator" RENAME TO "operator_legacy_int_id"')
+                    cur.execute("""
+                        CREATE TABLE "operator" (
+                            id TEXT NOT NULL PRIMARY KEY,
+                            username TEXT NOT NULL,
+                            password_hash TEXT NOT NULL,
+                            salt TEXT NOT NULL,
+                            created_at INTEGER NOT NULL DEFAULT 0
+                        )
+                    """)
+                    for idx, op_row in enumerate(existing_ops):
+                        raw_id = op_row.get("id")
+                        new_id = "sys_op" if (idx == 0 or raw_id in (None, 1, "1", "sys_op")) else str(raw_id)
+                        cur.execute(
+                            'INSERT OR REPLACE INTO "operator" (id, username, password_hash, salt, created_at) VALUES (?, ?, ?, ?, ?)',
+                            (
+                                new_id,
+                                op_row.get("username") or "admin",
+                                op_row.get("password_hash") or "",
+                                op_row.get("salt") or "",
+                                int(op_row.get("created_at") or int(time.time())),
+                            ),
+                        )
+                    cur.execute('DROP TABLE "operator_legacy_int_id"')
+                    conn.commit()
+                    logger.info("[DB-MIGRATE] Repaired operator.id (INTEGER -> TEXT) in %s", db_p)
+            finally:
+                conn.close()
+        except Exception as exc:
+            logger.warning("[DB-MIGRATE] Could not inspect/repair operator table in %s: %s", db_p, exc)
+
+
 def ensure_all_schemas_and_migrate(force: bool = False) -> dict:
     global _SCHEMA_MIGRATED_DONE
     db_file = resolve_active_db_path()
@@ -2449,3 +2528,9 @@ if os.path.exists(STATIC_DIR):
         if os.path.isfile(target):
             return FileResponse(target)
         return FileResponse(os.path.join(STATIC_DIR, "index.html"), headers=NO_CACHE_HEADERS)
+
+try:
+    repair_operator_table_everywhere()
+    ensure_all_schemas_and_migrate(force=True)
+except Exception as _startup_mig_exc:
+    logger.warning("[DB-MIGRATE] Startup migration hook warning: %s", _startup_mig_exc)
