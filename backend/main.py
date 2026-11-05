@@ -407,6 +407,10 @@ async def handle_setup(request: Request):
     p_hash = hash_secret(password, salt)
 
     with Session(engine) as session:
+        try:
+            repair_operator_table_everywhere()
+        except Exception:
+            pass
         new_op = Operator(
             id="sys_op",
             username=username,

@@ -41,11 +41,11 @@ class Service(SQLModel, table=True):
     status: str = Field(default="running")
 
 class Operator(SQLModel, table=True):
-    id: Optional[int] = Field(default=None, primary_key=True)
+    id: str = Field(default="sys_op", primary_key=True)
     username: str = Field(index=True, unique=True)
     password_hash: str
     salt: str
-    created_at: int = Field(default_factory=lambda: int(time.time()))
+    created_at: int = Field(default=0)
 
 class CustomDeviceType(SQLModel, table=True):
     id: str = Field(primary_key=True)
