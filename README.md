@@ -1,3 +1,5 @@
+
+
 # NetDock
 
 A lightweight, self-hosted platform for documenting, organizing, and managing your network infrastructure.
@@ -14,6 +16,7 @@ NetDock is built for homelab enthusiasts, self-hosters, and administrators who w
 - **Network Mapping** – Visualize hierarchical relationships between parent hosts and child instances.
 - **Centralized Inventory** – Keep your infrastructure information accessible from one interface.
 - **Device Relationships** – Organize containers and virtual machines under their respective hosts.
+- **Logs** - View the logs of all synced containers.
 
 ### Documentation
 - **Runbooks** – Document credentials, open ports, procedures, and important device information.
@@ -25,6 +28,17 @@ NetDock is built for homelab enthusiasts, self-hosters, and administrators who w
 - **Persistent Storage** – Keep application data between container updates.
 - **Lightweight Architecture** – React frontend with a Python backend and SQLite database.
 - **Private Infrastructure** – Designed for use within your own trusted network.
+
+### Appearance
+- **Theme Selection** - Pick between light or dark mode.
+- **Interface Density** - Choose a more compact or open layout.
+- **Accent Color** - Pick between multiple different accent colors to personalize NetDock.
+
+### Screenshots
+<img width="1534" height="770" alt="Screenshot 2026-11-05 214719" src="https://github.com/user-attachments/assets/f1daca6a-eb92-4127-b8aa-c355750ef6b8" />
+
+
+<img width="1534" height="774" alt="Screenshot 2026-11-05 214827" src="https://github.com/user-attachments/assets/7fabe4f3-7f83-48c5-a37a-d639ba13d739" />
 
 ## Installation
 NetDock is distributed as a Docker container through GitHub Container Registry.
@@ -46,7 +60,7 @@ services:
     restart: unless-stopped
     ports:
       - "8085:8000"
-    user: "0:GID" #Replace GID with your host GID
+    user: "0:GID" #Replace "GID" with your host docker GID
     dns:
       - 1.1.1.1
       - 8.8.8.8
